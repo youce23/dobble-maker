@@ -2,7 +2,6 @@ from typing import List
 
 import cv2
 import numpy as np
-import pandas as pd
 
 
 def is_prime(n: int) -> bool:
@@ -38,47 +37,12 @@ def is_prime(n: int) -> bool:
     return True
 
 
-def is_prime_power(value: int) -> bool:
-    """素数の累乗であるかを判定
-
-    Args:
-        value (int): 入力
-
-    Returns:
-        bool: 素数の累乗ならTrue, そうでないならFalse
-    """
-    # 0以下の値は素数の累乗ではない
-    if value <= 0:
-        return False
-    # 1は素数の0乗
-    if value == 1:
-        return True
-    # 素数は素数の1乗
-    if is_prime(value):
-        return True
-
-    # valueを2から平方根までの指数で割り切れるか調べる
-    for exponent in range(2, int(value**0.5) + 1):
-        # valueをexponentで割り切れ、かつexponentが素数の場合
-        if value % exponent == 0 and is_prime(exponent):
-            quotient = value
-            # exponentで割り切れる限りquotientを割る
-            while quotient % exponent == 0:
-                quotient //= exponent
-            # quotientが1になれば素数の累乗である
-            if quotient == 1:
-                return True
-
-    # どの条件にも該当しない
-    return False
-
-
 def is_valid_n_symbols(n: int) -> bool:
     """カード1枚当たりのシンボル数が条件を満たすか
 
-    条件: nが「素数の累乗+1」かつ「偶数」であること
+    条件: nが「素数+1」であること
 
-    「nが偶数であること」は参考サイトに記載されている組み合わせの作り方がそれに限定しているため
+    nの条件は以下を参考に理解できた範囲で最も厳しく設定した
     参考: ドブルの数理(3) ドブル構成8の実現 その1 位数7の有限体, https://amori.hatenablog.com/entry/2016/10/21/002032
 
     Args:
@@ -87,10 +51,7 @@ def is_valid_n_symbols(n: int) -> bool:
     Returns:
         bool: 条件を満たせばTrue
     """
-    if n <= 2:
-        return False
-
-    return n % 2 == 0 and is_prime_power(n - 1)
+    return is_prime(n - 1)
 
 
 def make_symbol_combinations(n_symbols: int) -> List[List[int]]:
@@ -165,7 +126,7 @@ def make_symbol_combinations(n_symbols: int) -> List[List[int]]:
 
 
 def main():
-    n_symbols: int = 10  # カード1枚当たりのシンボル数
+    n_symbols: int = 8  # カード1枚当たりのシンボル数
     # 入力チェック
     if not is_valid_n_symbols(n_symbols):
         raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols}) が「任意の素数の累乗+1」かつ「偶数」ではない")
