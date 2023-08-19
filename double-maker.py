@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import cv2
 import numpy as np
@@ -37,7 +37,7 @@ def is_prime(n: int) -> bool:
     return True
 
 
-def is_valid_n_symbols(n: int) -> bool:
+def is_valid_n_symbols_per_card(n: int) -> bool:
     """カード1枚当たりのシンボル数が条件を満たすか
 
     条件: nが「素数+1」であること
@@ -54,9 +54,18 @@ def is_valid_n_symbols(n: int) -> bool:
     return is_prime(n - 1)
 
 
-def make_symbol_combinations(n_symbols: int) -> List[List[int]]:
-    assert is_valid_n_symbols(n_symbols)
-    n = n_symbols - 1
+def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], int]:
+    """各カードに記載するシンボルの一覧を生成
+
+    Args:
+        n_symbols_per_card (int): カード1枚あたりに記載するシンボル数
+
+    Returns:
+        List[List[int]]: 各カードに記載するシンボル番号
+        int: 全シンボル数
+    """
+    assert is_valid_n_symbols_per_card(n_symbols_per_card)
+    n = n_symbols_per_card - 1
 
     # 以下、n_symbolsが4の場合 (n = 3)で解説
 
@@ -89,7 +98,7 @@ def make_symbol_combinations(n_symbols: int) -> List[List[int]]:
 
     # あと1要素追加
     # 9 10 11 12
-    pairs_ext = n * n + np.arange(n_symbols)
+    pairs_ext = n * n + np.arange(n_symbols_per_card)
     # a, b, cにpairs_extの各要素を追加
     # a
     # 0 1 2 --> 0 1 2 9
@@ -113,7 +122,8 @@ def make_symbol_combinations(n_symbols: int) -> List[List[int]]:
     for pr in pairs_c:
         pairs.extend(pr.tolist())
 
-    assert len(pairs) == n_symbols * (n_symbols - 1) + 1  # 参考サイトを参照
+    n_cards = n_symbols_per_card * (n_symbols_per_card - 1) + 1
+    assert len(pairs) == n_cards  # 参考サイトを参照
 
     if __debug__:
         _n = len(pairs)
@@ -122,17 +132,27 @@ def make_symbol_combinations(n_symbols: int) -> List[List[int]]:
                 # 任意のカードを2枚選んだ時、必ず共通するシンボルが1つだけ見つかる
                 assert len(set(pairs[i]) & set(pairs[j])) == 1
 
-    return pairs
+    n_all_symbols = len(set(np.reshape(pairs, -1)))
+    assert n_all_symbols == n_cards  # 全シンボル数は必要カード数と同じになる
+
+    return pairs, n_all_symbols
 
 
 def main():
-    n_symbols: int = 8  # カード1枚当たりのシンボル数
+    n_symbols_per_card: int = 8  # カード1枚当たりのシンボル数
+    image_dir = "images"  # 入力画像ディレクトリ
+    images_ext = ["jpg", "png"]  # image_dirから探索するファイルの拡張子
     # 入力チェック
-    if not is_valid_n_symbols(n_symbols):
-        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols}) が「任意の素数の累乗+1」かつ「偶数」ではない")
+    if not is_valid_n_symbols_per_card(n_symbols_per_card):
+        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「任意の素数の累乗+1」かつ「偶数」ではない")
 
     # 各カード毎の組み合わせを生成
-    pairs = make_symbol_combinations(n_symbols)
+    pairs, n_symbols = make_symbol_combinations(n_symbols_per_card)
+
+    # TODO: 以下の実装
+    # image_dirからn_symbols数の画像を取得
+    # len(pairs)枚のカード画像を作成
+    # 各画像をA4 300 DPIに配置しPDF化
 
     return
 
