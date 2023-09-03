@@ -1,3 +1,6 @@
+import glob
+import os
+import random
 from typing import List, Tuple
 
 import cv2
@@ -138,19 +141,74 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
     return pairs, n_all_symbols
 
 
+def load_images(
+    dir_name: str, num: int, *, ext: List[str] = ["jpg", "png"], shuffle: bool = False
+) -> Tuple[List[np.ndarray], List[str]]:
+    """所定数の画像を読み込む
+
+    画像ファイル名がすべて整数表記であれば数値でソートする。
+    整数表記でないファイルが1つでもあれば、文字列でソートする。
+
+    Args:
+        dir_name (str): 画像フォルダ
+        num (int): 読み込む画像数
+        ext (List[str], optional): 読み込み対象画像の拡張子. Defaults to ["jpg", "png"].
+        shuffle (bool, optional): Trueなら画像ファイル一覧をシャッフルする. Defaults to False.
+
+    Returns:
+        List[np.ndarray]: 読み込んだnum個の画像のリスト
+        List[str]]: 各画像のファイルパス
+    """
+    # 画像ファイル一覧を取得
+    files: List[str] = [fname for e in ext for fname in glob.glob(f"{dir_name}/*.{e}")]
+    if len(files) < num:
+        # ファイル数が足りないので例外を返す
+        raise ValueError(f"{dir_name}に{num}個以上の画像が存在しない")
+    files: List[Tuple[str, str]] = [(x, os.path.splitext(os.path.basename(x))[0]) for x in files]
+    if shuffle:
+        random.shuffle(files)
+    else:
+        # 試しにキャスト
+        try:
+            files: List[Tuple[str, int]] = [(x[0], int(x[1])) for x in files]
+        except ValueError:
+            # キャスト失敗ならstrのままにする
+            pass
+        # ソート
+        files = sorted(files, key=lambda x: x[1])
+    # 必要数に画像を制限
+    files = files[:num]
+
+    # 画像読み込み
+    images: List[np.ndarray] = []
+    image_paths: List[str] = []
+    for path, _ in files:
+        img = cv2.imread(path)
+        if img is None:
+            raise IOError(f"{path} の読み込み失敗")
+        images.append(img)
+        image_paths.append(path)
+
+    assert len(images) == num
+    assert len(image_paths) == num
+
+    return images, image_paths
+
+
 def main():
     n_symbols_per_card: int = 8  # カード1枚当たりのシンボル数
-    image_dir = "images"  # 入力画像ディレクトリ
-    images_ext = ["jpg", "png"]  # image_dirから探索するファイルの拡張子
+    image_dir = "images/select_1"  # 入力画像ディレクトリ
     # 入力チェック
     if not is_valid_n_symbols_per_card(n_symbols_per_card):
-        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「任意の素数の累乗+1」かつ「偶数」ではない")
+        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「任意の素数+1」ではない")
 
     # 各カード毎の組み合わせを生成
     pairs, n_symbols = make_symbol_combinations(n_symbols_per_card)
 
-    # TODO: 以下の実装
     # image_dirからn_symbols数の画像を取得
+    images, _ = load_images(image_dir, n_symbols)
+
+    # TODO: 以下の実装
     # len(pairs)枚のカード画像を作成
     # 各画像をA4 300 DPIに配置しPDF化
 
