@@ -134,6 +134,9 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
 
     if __debug__:
         _n = len(pairs)
+        for i in range(_n):
+            # 各カードのシンボル数は指定数そろっている
+            assert len(pairs[i]) == n_symbols_per_card
         for i in range(_n - 1):
             for j in range(i + 1, _n):
                 # 任意のカードを2枚選んだ時、必ず共通するシンボルが1つだけ見つかる
