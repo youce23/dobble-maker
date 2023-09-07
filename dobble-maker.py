@@ -47,10 +47,8 @@ def is_prime(n: int) -> bool:
 def is_valid_n_symbols_per_card(n: int) -> bool:
     """カード1枚当たりのシンボル数が条件を満たすか
 
-    条件: nが「素数+1」であること
-
-    nの条件は以下を参考に理解できた範囲で最も厳しく設定した
-    参考: ドブルの数理(3) ドブル構成8の実現 その1 位数7の有限体, https://amori.hatenablog.com/entry/2016/10/21/002032
+    条件: nが1, 2, あるいは「任意の素数の累乗 + 1」であること
+    参考: カードゲーム ドブル(Dobble)の数理, https://amori.hatenablog.com/entry/2016/10/06/015906
 
     Args:
         n (int): 入力
@@ -58,7 +56,27 @@ def is_valid_n_symbols_per_card(n: int) -> bool:
     Returns:
         bool: 条件を満たせばTrue
     """
-    return is_prime(n - 1)
+    if n < 1:
+        return False
+    elif n in (1, 2):
+        return True
+
+    m = n - 1
+
+    if is_prime(m):
+        return True
+
+    # mが任意の素数の累乗かをチェック
+    m_s = int(np.floor(np.sqrt(m)))  # 2以上sqrt(m)以下の素数についてチェック
+    for s in range(2, m_s + 1):
+        if not is_prime(s):
+            continue
+        # 底をsとするlogを取り、結果が整数ならsの累乗
+        v = float(np.log(m) / np.log(s))
+        if v.is_integer():
+            return True
+
+    return False
 
 
 def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], int]:
@@ -523,7 +541,7 @@ def main():
     # ========
     # 入力チェック
     if not is_valid_n_symbols_per_card(n_symbols_per_card):
-        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「任意の素数+1」ではない")
+        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「任意の素数の累乗 + 1」ではない")
 
     # 乱数初期化
     random.seed(seed)
