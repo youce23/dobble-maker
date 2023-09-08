@@ -9,6 +9,7 @@ img2pdf = "*"
 numpy = "*"
 tqdm = "*"
 pypdf = "*"
+galois = "*"
 
 [dev-packages]
 

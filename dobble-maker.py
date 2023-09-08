@@ -5,6 +5,7 @@ import tempfile
 from typing import List, Optional, Tuple, Union
 
 import cv2
+import galois
 import img2pdf
 import numpy as np
 import pypdf
@@ -44,13 +45,38 @@ def is_prime(n: int) -> bool:
     return True
 
 
+def is_prime_power(n: int) -> Tuple[bool, Optional[Tuple[int, int]]]:
+    """素数の累乗判定
+
+    Args:
+        n (int): 入力
+
+    Returns:
+        bool: 素数の累乗ならTrue
+        Optional[Tuple[int, int]]: n = a ** bを満たす(a, b) または None
+
+    """
+    if is_prime(n):
+        return True, (n, 1)
+
+    # nが任意の素数の累乗かをチェック
+    n_s = int(np.floor(np.sqrt(n)))  # 2以上sqrt(n)以下の素数についてチェック
+    for s in range(2, n_s + 1):
+        if not is_prime(s):
+            continue
+        # 底をsとするlogを取り、結果が整数ならsの累乗
+        v = float(np.log(n) / np.log(s))
+        if v.is_integer():
+            return True, (s, int(v))
+
+    return False, None
+
+
 def is_valid_n_symbols_per_card(n: int) -> bool:
     """カード1枚当たりのシンボル数が条件を満たすか
 
-    条件: nが「素数+1」であること
-
-    nの条件は以下を参考に理解できた範囲で最も厳しく設定した
-    参考: ドブルの数理(3) ドブル構成8の実現 その1 位数7の有限体, https://amori.hatenablog.com/entry/2016/10/21/002032
+    条件: n が 2, あるいは「任意の素数の累乗 + 1」であること
+    参考: カードゲーム ドブル(Dobble)の数理, https://amori.hatenablog.com/entry/2016/10/06/015906
 
     Args:
         n (int): 入力
@@ -58,11 +84,30 @@ def is_valid_n_symbols_per_card(n: int) -> bool:
     Returns:
         bool: 条件を満たせばTrue
     """
-    return is_prime(n - 1)
+    if n < 2:
+        return False
+    elif n == 2:
+        return True
+
+    # 素数の累乗 + 1 か？
+    flg, _ = is_prime_power(n - 1)
+
+    return flg
 
 
 def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], int]:
     """各カードに記載するシンボルの一覧を生成
+
+    参考:
+        * カードゲーム ドブル(Dobble)の数理, https://amori.hatenablog.com/entry/2016/10/06/015906
+            * 日本語で一番わかりやすいサイト
+                * カードの最大数の式などはここから流用
+            * 素数の場合の組み合わせの求め方が載っているが、素数の累乗に非対応
+        * The Dobble Algorithm, https://mickydore.medium.com/the-dobble-algorithm-b9c9018afc52
+            * JavaScriptでの実装と図説があるが、素数の累乗に非対応
+        * https://math.stackexchange.com/questions/1303497/what-is-the-algorithm-to-generate-the-cards-in-the-game-dobble-known-as-spo
+            * 上記の Karinka 氏の実装を流用
+            * 素数の累乗に対応するためにはガロア体上での計算が必要、との記載がある
 
     Args:
         n_symbols_per_card (int): カード1枚あたりに記載するシンボル数
@@ -73,61 +118,36 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
     """
     assert is_valid_n_symbols_per_card(n_symbols_per_card)
     n = n_symbols_per_card - 1
+    if n == 1:
+        a = b = 1
+    else:
+        _, (a, b) = is_prime_power(n)  # n を素数と指数に分解
+    assert n == a**b
 
-    # 以下、n_symbolsが4の場合 (n = 3)で解説
+    # 位数を n とするガロア体
+    # 0 以上 n 未満の正の整数で構成される世界のこと。
+    # n が素数なら単純な加算、乗算が成り立つが、素数の累乗の場合は複雑な計算が必要。
+    # n が素数の累乗ではないガロア体は存在しない。
+    if n == 1:
+        # 位数が1の場合は常に0を返すだけ
+        gf = lambda _: 0  # noqa: E731
+    else:
+        # ガロア体(厳密には素数の累乗をベースとするためガロア拡大体)の計算をするためにgaloisパッケージを使う
+        gf = galois.GF(n)
 
-    # a. 素のままの組み合わせ (各行がカード1枚分のシンボル(正確にはもう1要素追加される))
-    # 0 1 2
-    # 3 4 5
-    # 6 7 8
-    pairs_a = np.reshape(np.arange(n * n), [n, n])
-
-    # b. aの転置
-    # 0 3 6
-    # 1 4 7
-    # 2 5 8
-    pairs_b = pairs_a.T
-
-    # c. bの2列目以降をn = 1, ... n-1までローテーション
-    # 0 5 7
-    # 1 3 8
-    # 2 4 6
-    #
-    # 0 4 8
-    # 1 5 6
-    # 2 3 7
-    pairs_c: List[np.ndarray] = []
-    for rot in range(1, n):
-        new_pairs = pairs_b.copy()
-        for col in range(1, n):
-            new_pairs[:, col] = np.roll(new_pairs[:, col], rot * col)
-        pairs_c.append(new_pairs)
-
-    # あと1要素追加
-    # 9 10 11 12
-    pairs_ext = n * n + np.arange(n_symbols_per_card)
-    # a, b, cにpairs_extの各要素を追加
-    # a
-    # 0 1 2 --> 0 1 2 9
-    # 3 4 5 --> 3 4 5 9
-    # 6 7 8 --> 6 7 8 9
-    pairs_a = np.concatenate([pairs_a, np.resize(pairs_ext[0], [n, 1])], axis=1)
-    # b
-    # 0 3 6 --> 0 3 6 10
-    # 1 4 7 --> 1 4 7 10
-    # 2 5 8 --> 2 5 8 10
-    pairs_b = np.concatenate([pairs_b, np.resize(pairs_ext[1], [n, 1])], axis=1)
-    # 同様にcに11, 12を追加
-    for i in range(len(pairs_c)):
-        pairs_c[i] = np.concatenate([pairs_c[i], np.resize(pairs_ext[2 + i], [n, 1])], axis=1)
-
-    # ext及びa, b, cの各行をカード1枚当たりのシンボルとして出力
     pairs: List[List[int]] = []
-    pairs.append(pairs_ext.tolist())  # pairs_extは1次元配列で、それ以外は2次元配列のため、appendとextendを使い分ける
-    pairs.extend(pairs_a.tolist())
-    pairs.extend(pairs_b.tolist())
-    for pr in pairs_c:
-        pairs.extend(pr.tolist())
+
+    # 最初の N * N 枚のカード
+    for i in range(n):
+        for j in range(n):
+            pairs.append([int(gf(i) * gf(k) + gf(j)) * n + k for k in range(n)] + [n * n + i])
+
+    # 次の N 枚のカード
+    for i in range(n):
+        pairs.append([j * n + i for j in range(n)] + [n * n + n])
+
+    # 最初の1枚
+    pairs.append([n * n + i for i in range(n + 1)])
 
     n_cards = n_symbols_per_card * (n_symbols_per_card - 1) + 1
     assert len(pairs) == n_cards  # 参考サイトを参照
@@ -523,7 +543,7 @@ def main():
     # ========
     # 入力チェック
     if not is_valid_n_symbols_per_card(n_symbols_per_card):
-        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「任意の素数+1」ではない")
+        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「2 あるいは (任意の素数の累乗 + 1)」ではない")
 
     # 乱数初期化
     random.seed(seed)
