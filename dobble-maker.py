@@ -209,10 +209,21 @@ def load_images(
     # 画像読み込み
     images: List[np.ndarray] = []
     image_paths: List[str] = []
+
+    WHITE = (255, 255, 255)
     for path, _ in files:
-        img = cv2.imread(path)
+        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
             raise IOError(f"{path} の読み込み失敗")
+        h, w, n_ch = img.shape
+        if n_ch == 4:
+            # alphaチャネルがある場合、背景を白画素(255, 255, 255)として合成する
+            img_bg = np.full((h, w, 3), WHITE, dtype=np.uint8)
+            img = (img_bg * (1 - img[:, :, 3:] / 255) + img[:, :, :3] * (img[:, :, 3:] / 255)).astype(np.uint8)
+        elif n_ch == 1:
+            img = cv2.cvtColor(img, cv2.GRAY2BGR)
+        else:
+            raise IOError(f"{path} のチャネル数({n_ch})はサポート対象外")
         images.append(img)
         image_paths.append(path)
 
