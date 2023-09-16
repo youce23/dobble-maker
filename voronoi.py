@@ -92,7 +92,7 @@ def _bounded_voronoi(
 
     if show:
         # ボロノイ図の描画
-        fig = plt.figure(figsize=(7, 6))
+        fig = plt.figure(figsize=(7, 6), num=1)
         ax = fig.add_subplot(111)
 
         # 母点
