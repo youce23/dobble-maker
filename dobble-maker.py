@@ -2,7 +2,6 @@ import glob
 import os
 import random
 import tempfile
-from typing import List, Optional, Tuple, Union
 
 import cv2
 import galois
@@ -45,7 +44,7 @@ def is_prime(n: int) -> bool:
     return True
 
 
-def is_prime_power(n: int) -> Tuple[bool, Optional[Tuple[int, int]]]:
+def is_prime_power(n: int) -> tuple[bool, tuple[int, int] | None]:
     """素数の累乗判定
 
     Args:
@@ -53,7 +52,7 @@ def is_prime_power(n: int) -> Tuple[bool, Optional[Tuple[int, int]]]:
 
     Returns:
         bool: 素数の累乗ならTrue
-        Optional[Tuple[int, int]]: n = a ** bを満たす(a, b) または None
+        Optional[tuple[int, int]]: n = a ** bを満たす(a, b) または None
 
     """
     if is_prime(n):
@@ -95,7 +94,7 @@ def is_valid_n_symbols_per_card(n: int) -> bool:
     return flg
 
 
-def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], int]:
+def make_symbol_combinations(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
     """各カードに記載するシンボルの一覧を生成
 
     参考:
@@ -105,7 +104,8 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
             * 素数の場合の組み合わせの求め方が載っているが、素数の累乗に非対応
         * The Dobble Algorithm, https://mickydore.medium.com/the-dobble-algorithm-b9c9018afc52
             * JavaScriptでの実装と図説があるが、素数の累乗に非対応
-        * https://math.stackexchange.com/questions/1303497/what-is-the-algorithm-to-generate-the-cards-in-the-game-dobble-known-as-spo
+        * https://math.stackexchange.com/questions/1303497
+            * "What is the algorithm to generate the cards in the game "Dobble" (known as "Spot it" in the USA)?"
             * 上記の Karinka 氏の実装を流用
             * 素数の累乗に対応するためにはガロア体上での計算が必要、との記載がある
 
@@ -113,7 +113,7 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
         n_symbols_per_card (int): カード1枚あたりに記載するシンボル数
 
     Returns:
-        List[List[int]]: 各カードに記載するシンボル番号
+        list[list[int]]: 各カードに記載するシンボル番号
         int: 全シンボル数
     """
     assert is_valid_n_symbols_per_card(n_symbols_per_card)
@@ -135,7 +135,7 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
         # ガロア体(厳密には素数の累乗をベースとするためガロア拡大体)の計算をするためにgaloisパッケージを使う
         gf = galois.GF(n)
 
-    pairs: List[List[int]] = []
+    pairs: list[list[int]] = []
 
     # 最初の N * N 枚のカード
     for i in range(n):
@@ -169,8 +169,8 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
 
 
 def load_images(
-    dir_name: str, num: int, *, ext: List[str] = ["jpg", "png"], shuffle: bool = False
-) -> Tuple[List[np.ndarray], List[str]]:
+    dir_name: str, num: int, *, ext: list[str] = ["jpg", "png"], shuffle: bool = False
+) -> tuple[list[np.ndarray], list[str]]:
     """所定数の画像を読み込む
 
     画像ファイル名がすべて整数表記であれば数値でソートする。
@@ -179,25 +179,25 @@ def load_images(
     Args:
         dir_name (str): 画像フォルダ
         num (int): 読み込む画像数
-        ext (List[str], optional): 読み込み対象画像の拡張子. Defaults to ["jpg", "png"].
+        ext (list[str], optional): 読み込み対象画像の拡張子. Defaults to ["jpg", "png"].
         shuffle (bool, optional): Trueなら画像ファイル一覧をシャッフルする. Defaults to False.
 
     Returns:
-        List[np.ndarray]: 読み込んだnum個の画像のリスト
-        List[str]]: 各画像のファイルパス
+        list[np.ndarray]: 読み込んだnum個の画像のリスト
+        list[str]]: 各画像のファイルパス
     """
     # 画像ファイル一覧を取得
-    files: List[str] = [fname for e in ext for fname in glob.glob(f"{dir_name}/*.{e}")]
+    files: list[str] = [fname for e in ext for fname in glob.glob(f"{dir_name}/*.{e}")]
     if len(files) < num:
         # ファイル数が足りないので例外を返す
         raise ValueError(f"{dir_name}に{num}個以上の画像が存在しない")
-    files: List[Tuple[str, str]] = [(x, os.path.splitext(os.path.basename(x))[0]) for x in files]
+    files: list[tuple[str, str]] = [(x, os.path.splitext(os.path.basename(x))[0]) for x in files]
     if shuffle:
         random.shuffle(files)
     else:
         # 試しにキャスト
         try:
-            files: List[Tuple[str, int]] = [(x[0], int(x[1])) for x in files]
+            files: list[tuple[str, int]] = [(x[0], int(x[1])) for x in files]
         except ValueError:
             # キャスト失敗ならstrのままにする
             pass
@@ -207,8 +207,8 @@ def load_images(
     files = files[:num]
 
     # 画像読み込み
-    images: List[np.ndarray] = []
-    image_paths: List[str] = []
+    images: list[np.ndarray] = []
+    image_paths: list[str] = []
 
     WHITE = (255, 255, 255)
     for path, _ in files:
@@ -278,9 +278,9 @@ def rotate_fit(
 
 
 def layout_images_randomly_wo_overlap(
-    images: List[np.ndarray],
-    image_indexes: List[int],
-    canv_size: Union[int, Tuple[int, int]],
+    images: list[np.ndarray],
+    image_indexes: list[int],
+    canv_size: int | tuple[int, int],
     margin: int,
     *,
     draw_frame: bool = False,
@@ -289,10 +289,10 @@ def layout_images_randomly_wo_overlap(
     """画像を重ならないように配置する
 
     Args:
-        images (List[np.ndarray]): 画像リスト
-        image_indexes (List[int]): 使用する画像のインデックスのリスト
-        canv_size (Union[int, Tuple[int, int]]):
-            配置先の画像サイズ. intなら円の直径、Tuple[int, int]なら矩形の幅, 高さとする
+        images (list[np.ndarray]): 画像リスト
+        image_indexes (list[int]): 使用する画像のインデックスのリスト
+        canv_size (Union[int, tuple[int, int]]):
+            配置先の画像サイズ. intなら円の直径、tuple[int, int]なら矩形の幅, 高さとする
         margin (int): 配置先の画像の外縁につける余白サイズ
         draw_frame (bool): 印刷を想定した枠を描画するならTrue
         show (bool): (optional) 計算中の画像を画面表示するならTrue
@@ -424,11 +424,11 @@ def layout_images_randomly_wo_overlap(
     return canvas
 
 
-def merge_pdf(pdf_paths: List[str], output_pdf: str):
+def merge_pdf(pdf_paths: list[str], output_pdf: str):
     """PDFファイルをマージして新たなPDFファイルを出力
 
     Args:
-        pdf_paths (List[str]): マージ元のPDFファイルパス, 記載の順序で結合される
+        pdf_paths (list[str]): マージ元のPDFファイルパス, 記載の順序で結合される
         output_pdf (str): 出力PDFファイルのパス
     """
     output_dir = os.path.dirname(output_pdf)
@@ -443,7 +443,7 @@ def merge_pdf(pdf_paths: List[str], output_pdf: str):
 
 
 def images_to_pdf(
-    images: List[np.ndarray],
+    images: list[np.ndarray],
     pdf_path: str,
     *,
     dpi: int = 300,
@@ -454,7 +454,7 @@ def images_to_pdf(
     """画像セットを並べてPDF化し保存
 
     Args:
-        images (List[np.ndarray]): 画像セット, すべて画像サイズは同じとする
+        images (list[np.ndarray]): 画像セット, すべて画像サイズは同じとする
         pdf_path (str): 出力するPDFのフルパス
         dpi (int, optional): PDFの解像度. Defaults to 300.
         card_width_mm (int, optional): 画像1枚の長辺サイズ(mm). Defaults to 95.
@@ -546,7 +546,7 @@ def main():
     page_size_mm = (210, 297)  # PDFの(幅, 高さ)[mm]
 
     # その他
-    seed: Optional[int] = None  # 乱数種
+    seed: int | None = None  # 乱数種
     gen_card_images: bool = True  # (主にデバッグ用) もし output_dir にある生成済みの画像群を使うならFalse
 
     # ========
@@ -558,6 +558,7 @@ def main():
 
     # 乱数初期化
     random.seed(seed)
+    np.random.seed(seed)
 
     # ========
     # メイン
