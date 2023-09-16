@@ -449,9 +449,6 @@ def _layout_voronoi(
     WHITE = (255, 255, 255)
     OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
 
-    # 画像位置が毎回同じにならないようにシャッフル
-    np.random.shuffle(images)
-
     # 各カードの配置位置と範囲を計算 (x, yで計算)
     if is_circle:
         c = width / 2
@@ -464,12 +461,19 @@ def _layout_voronoi(
             (width - margin, height - margin),
             (margin, height - margin),
         ]
+
     # 重心ボロノイ分割で各画像の中心位置と範囲を取得
     # (範囲は目安であり変わっても良い)
-    show_step = None if not show else range(0, 10, 9)
-    pos_images, rgn_images = cvt(bnd_pts, len(images), show_step=show_step)
+    # NOTE: ここのshowは毎回止まってしまうのでデバッグ時に手動でTrueにする
+    pos_images, rgn_images = cvt(bnd_pts, len(images), show_step=None)
 
     # キャンバスの作成
+    # canvas:
+    #   最終的に出力する画像 (3ch)
+    #   シンボルの画像位置が決まるごとに重畳され、最後に余白(canvas_olで0の箇所)がWHITEで塗りつぶされる
+    # canvas_ol:
+    #   重なりチェックをするためのマスク画像 (1ch),
+    #   描画後に(0またはOVERLAP_VAL)以外の値があったら、その画素は重なりがあったことを意味する
     canvas, canv_ol = _make_canvas(is_circle, width, height, margin)
 
     # 各画像をpos_imagesに配置
@@ -479,16 +483,16 @@ def _layout_voronoi(
         im_h = im_trim.shape[0]
         im_w = im_trim.shape[1]
 
-        pos = pos_images[i_img]  # 描画の中心位置 (x, y)
-        rgn = rgn_images[i_img]  # 描画する画像サイズ(目安) (x, y)
+        pos = pos_images[i_img]  # ボロノイ領域の重心 (描画の中心座標とする) (x, y)
+        rgn = rgn_images[i_img]  # ボロノイ領域境界 (x, y)
         # 貼り付ける画像の最大サイズは、ボロノイ領域の最大長に長辺が入るサイズとする
         mx_len_rgn = max([np.linalg.norm(np.array(p1) - np.array(p2)) for p1 in rgn for p2 in rgn])
 
         init_deg = random.randint(0, 360)  # 初期角度をランダムに決める
 
-        cur_canv_ol = canv_ol.copy()
         ok = False
-        for scl in range(100, 0, -5):  # 画像サイズを100%から減らしていく
+        scl = 100
+        while scl > 5:
             # 元画像の対角長とボロノイ領域の最大長が一致するスケールを100%としてスケールを計算
             l_lngside = max(im_trim.shape[0], im_trim.shape[1])  # 元画像の長辺長
             scl_r = mx_len_rgn / l_lngside * (scl / 100)
@@ -505,12 +509,20 @@ def _layout_voronoi(
                 rb = (rb[0] + pos[0], rb[1] + pos[1])
 
                 # 重なりなく描画できるか確認
-                im_bb = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
+                # 画像貼り付け位置にマスクを描画
+                mask_img = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
                 _pts = np.array([lt, rt, lb, rb], dtype=int)
-                cv2.fillConvexPoly(im_bb, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
+                cv2.fillConvexPoly(mask_img, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
 
-                _canv_ol = cur_canv_ol.copy()
-                _canv_ol += im_bb
+                # ボロノイ境界を超えない制約をつけるために境界線を描画
+                # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
+                # 参考: https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
+                _canv_ol = canv_ol.copy()  # ボロノイ境界はmarginなど他のマスクと重なることがあるので、重畳ではなくOVERLAP_VALの描画にする
+                _pts = np.array(rgn).reshape((-1, 1, 2)).astype(np.int32)
+                cv2.polylines(_canv_ol, [_pts], True, OVERLAP_VAL, thickness=1, lineType=cv2.LINE_4)
+
+                # 画像マスクとボロノイ境界マスクを重畳
+                _canv_ol += mask_img
 
                 if show:
                     cv2.imshow("canv_overlap", _canv_ol)
@@ -520,7 +532,8 @@ def _layout_voronoi(
                 if (_canv_ol > OVERLAP_VAL).sum() == 0:
                     ok = True
 
-                    canv_ol = _canv_ol
+                    # 重なりがなければ改めてマスクに画像マスクを重畳
+                    canv_ol += mask_img
 
                     # キャンバスに重畳 (マスク処理)
                     im_mask = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
@@ -542,6 +555,12 @@ def _layout_voronoi(
                     break
             if ok:
                 break
+
+            scl *= 0.95  # 前回の大きさを基準に一定割合だけ縮小
+
+    if not ok:
+        # ここでOKになっていないということは画像を限界まで小さくしてもボロノイ領域に収まらなかったことを意味するので例外とする
+        raise NotImplementedError("画像がボロノイ領域内に描画できずレイアウトに失敗")
 
     if show:
         cv2.destroyAllWindows()
