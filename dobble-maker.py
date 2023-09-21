@@ -1,8 +1,9 @@
 import glob
+import math
 import os
 import random
 import tempfile
-from typing import List, Optional, Tuple, Union
+from typing import Literal
 
 import cv2
 import galois
@@ -10,6 +11,8 @@ import img2pdf
 import numpy as np
 import pypdf
 import tqdm
+
+from voronoi import cvt
 
 
 def is_prime(n: int) -> bool:
@@ -45,7 +48,7 @@ def is_prime(n: int) -> bool:
     return True
 
 
-def is_prime_power(n: int) -> Tuple[bool, Optional[Tuple[int, int]]]:
+def is_prime_power(n: int) -> tuple[bool, tuple[int, int] | None]:
     """素数の累乗判定
 
     Args:
@@ -53,7 +56,7 @@ def is_prime_power(n: int) -> Tuple[bool, Optional[Tuple[int, int]]]:
 
     Returns:
         bool: 素数の累乗ならTrue
-        Optional[Tuple[int, int]]: n = a ** bを満たす(a, b) または None
+        Optional[tuple[int, int]]: n = a ** bを満たす(a, b) または None
 
     """
     if is_prime(n):
@@ -95,7 +98,7 @@ def is_valid_n_symbols_per_card(n: int) -> bool:
     return flg
 
 
-def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], int]:
+def make_symbol_combinations(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
     """各カードに記載するシンボルの一覧を生成
 
     参考:
@@ -105,7 +108,8 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
             * 素数の場合の組み合わせの求め方が載っているが、素数の累乗に非対応
         * The Dobble Algorithm, https://mickydore.medium.com/the-dobble-algorithm-b9c9018afc52
             * JavaScriptでの実装と図説があるが、素数の累乗に非対応
-        * https://math.stackexchange.com/questions/1303497/what-is-the-algorithm-to-generate-the-cards-in-the-game-dobble-known-as-spo
+        * https://math.stackexchange.com/questions/1303497
+            * "What is the algorithm to generate the cards in the game "Dobble" (known as "Spot it" in the USA)?"
             * 上記の Karinka 氏の実装を流用
             * 素数の累乗に対応するためにはガロア体上での計算が必要、との記載がある
 
@@ -113,7 +117,7 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
         n_symbols_per_card (int): カード1枚あたりに記載するシンボル数
 
     Returns:
-        List[List[int]]: 各カードに記載するシンボル番号
+        list[list[int]]: 各カードに記載するシンボル番号
         int: 全シンボル数
     """
     assert is_valid_n_symbols_per_card(n_symbols_per_card)
@@ -135,7 +139,7 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
         # ガロア体(厳密には素数の累乗をベースとするためガロア拡大体)の計算をするためにgaloisパッケージを使う
         gf = galois.GF(n)
 
-    pairs: List[List[int]] = []
+    pairs: list[list[int]] = []
 
     # 最初の N * N 枚のカード
     for i in range(n):
@@ -169,8 +173,8 @@ def make_symbol_combinations(n_symbols_per_card: int) -> Tuple[List[List[int]], 
 
 
 def load_images(
-    dir_name: str, num: int, *, ext: List[str] = ["jpg", "png"], shuffle: bool = False
-) -> Tuple[List[np.ndarray], List[str]]:
+    dir_name: str, num: int, *, ext: list[str] = ["jpg", "png"], shuffle: bool = False
+) -> tuple[list[np.ndarray], list[str]]:
     """所定数の画像を読み込む
 
     画像ファイル名がすべて整数表記であれば数値でソートする。
@@ -179,25 +183,25 @@ def load_images(
     Args:
         dir_name (str): 画像フォルダ
         num (int): 読み込む画像数
-        ext (List[str], optional): 読み込み対象画像の拡張子. Defaults to ["jpg", "png"].
+        ext (list[str], optional): 読み込み対象画像の拡張子. Defaults to ["jpg", "png"].
         shuffle (bool, optional): Trueなら画像ファイル一覧をシャッフルする. Defaults to False.
 
     Returns:
-        List[np.ndarray]: 読み込んだnum個の画像のリスト
-        List[str]]: 各画像のファイルパス
+        list[np.ndarray]: 読み込んだnum個の画像のリスト
+        list[str]]: 各画像のファイルパス
     """
     # 画像ファイル一覧を取得
-    files: List[str] = [fname for e in ext for fname in glob.glob(f"{dir_name}/*.{e}")]
+    files: list[str] = [fname for e in ext for fname in glob.glob(f"{dir_name}/*.{e}")]
     if len(files) < num:
         # ファイル数が足りないので例外を返す
         raise ValueError(f"{dir_name}に{num}個以上の画像が存在しない")
-    files: List[Tuple[str, str]] = [(x, os.path.splitext(os.path.basename(x))[0]) for x in files]
+    files: list[tuple[str, str]] = [(x, os.path.splitext(os.path.basename(x))[0]) for x in files]
     if shuffle:
         random.shuffle(files)
     else:
         # 試しにキャスト
         try:
-            files: List[Tuple[str, int]] = [(x[0], int(x[1])) for x in files]
+            files: list[tuple[str, int]] = [(x[0], int(x[1])) for x in files]
         except ValueError:
             # キャスト失敗ならstrのままにする
             pass
@@ -207,8 +211,8 @@ def load_images(
     files = files[:num]
 
     # 画像読み込み
-    images: List[np.ndarray] = []
-    image_paths: List[str] = []
+    images: list[np.ndarray] = []
+    image_paths: list[str] = []
 
     WHITE = (255, 255, 255)
     for path, _ in files:
@@ -277,83 +281,64 @@ def rotate_fit(
     return img_rot
 
 
-def layout_images_randomly_wo_overlap(
-    images: List[np.ndarray],
-    image_indexes: List[int],
-    canv_size: Union[int, Tuple[int, int]],
-    margin: int,
-    *,
-    draw_frame: bool = False,
-    show: bool = False,
-) -> np.ndarray:
-    """画像を重ならないように配置する
-
-    Args:
-        images (List[np.ndarray]): 画像リスト
-        image_indexes (List[int]): 使用する画像のインデックスのリスト
-        canv_size (Union[int, Tuple[int, int]]):
-            配置先の画像サイズ. intなら円の直径、Tuple[int, int]なら矩形の幅, 高さとする
-        margin (int): 配置先の画像の外縁につける余白サイズ
-        draw_frame (bool): 印刷を想定した枠を描画するならTrue
-        show (bool): (optional) 計算中の画像を画面表示するならTrue
-
-    Returns:
-        np.ndarray: カード画像
-    """
-    tar_images = [images[i] for i in image_indexes]
-
-    # 出力先画像を初期化
-    is_circle: bool = False
-    if isinstance(canv_size, int):
-        width = height = canv_size
-        is_circle = True
-    else:
-        width, height = canv_size
-
-    # 画像1枚当たりの基本サイズを指定
-    n_img_in_card = len(image_indexes)
-    img_base_size = int(np.ceil(max(height, width) / np.ceil(np.sqrt(n_img_in_card))))
-
+def _make_canvas(is_circle: bool, width: int, height: int, margin: int) -> tuple[np.ndarray, np.ndarray]:
+    """空のキャンバスを作成"""
     BLACK = (0, 0, 0)
     WHITE = (255, 255, 255)
+    OVERLAP_VAL = 127
+
+    if is_circle:
+        # 描画キャンバス
+        canvas = np.full((height, width, 3), WHITE, dtype=np.uint8)
+        # 重複確認用キャンバス
+        canv_ol = np.full((height, width), OVERLAP_VAL, dtype=np.uint8)
+
+        center = (int(height / 2), int(width / 2))
+        radius = int(width / 2) - margin
+        cv2.circle(canvas, center, radius, BLACK, thickness=-1)
+        cv2.circle(canv_ol, center, radius, 0, thickness=-1)
+    else:
+        # 描画キャンバス
+        canvas = np.zeros((height, width, 3), dtype=np.uint8)
+        # 重複確認用キャンバス
+        canv_ol = np.zeros((height, width), dtype=np.uint8)
+        cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), WHITE, thickness=margin, lineType=cv2.LINE_4)
+        cv2.rectangle(canv_ol, (0, 0), (width - 1, height - 1), OVERLAP_VAL, thickness=margin, lineType=cv2.LINE_4)
+
+    return canvas, canv_ol
+
+
+def _layout_random(
+    is_circle: bool, width: int, height: int, margin: int, images: list[np.ndarray], show: bool
+) -> np.ndarray:
+    """画像を重ならないようにランダムに配置する
+
+    Args:
+        is_circle (bool): 出力画像が円形か否か
+        width (int): 出力画像の幅
+        height (int): 出力画像の高さ
+        margin (int): 出力画像の外縁につける余白サイズ
+        images (list[np.ndarray]): 配置画像ソース
+        show (bool): 計算中の画像を画面表示するならTrue
+    """
+    # 画像1枚当たりの基本サイズを指定
+    n_img_in_card = len(images)
+    img_base_size = int(np.ceil(max(height, width) / np.ceil(np.sqrt(n_img_in_card))))
+
+    WHITE = (255, 255, 255)
+    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
 
     while True:
         # マスク画像に描画するパラメータ
-        v = 127  # 二値化する値。重複チェックのために中間の値にしておく
-        thr = 5  # 二値化の閾値
-        # キャンパスの作成
-        if is_circle:
-            # 描画キャンバス
-            canvas = np.full((height, width, 3), WHITE, dtype=np.uint8)
-            # 重複確認用キャンバス
-            canv_ol = np.full((height, width), v, dtype=np.uint8)
-
-            center = (int(height / 2), int(width / 2))
-            radius = int(width / 2) - margin
-            cv2.circle(canvas, center, radius, BLACK, thickness=-1)
-            cv2.circle(canv_ol, center, radius, 0, thickness=-1)
-        else:
-            # 描画キャンバス
-            canvas = np.zeros((height, width, 3), dtype=np.uint8)
-            # 重複確認用キャンバス
-            canv_ol = np.zeros((height, width), dtype=np.uint8)
-            cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), WHITE, thickness=margin, lineType=cv2.LINE_4)
-            cv2.rectangle(canv_ol, (0, 0), (width - 1, height - 1), v, thickness=margin, lineType=cv2.LINE_4)
-        for img in tar_images:
-            # 元画像を二値化して外接矩形でトリミング
-            im_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            _, im_bin = cv2.threshold(im_gray, 255 - thr, v, cv2.THRESH_BINARY_INV)
-            wh = np.where(im_bin == v)
-            y0 = min(wh[0])
-            x0 = min(wh[1])
-            y1 = max(wh[0])
-            x1 = max(wh[1])
-
-            im_trim = img[y0:y1, x0:x1, :]
-            im_bin_trim = np.full((im_trim.shape[0], im_trim.shape[1]), v, dtype=np.uint8)
+        # キャンバスの作成
+        canvas, canv_ol = _make_canvas(is_circle, width, height, margin)
+        for img in images:
+            # 元画像の余白を除去して外接矩形でトリミング
+            im_trim = _trim_bb_image(img)
+            im_bin_trim = np.full((im_trim.shape[0], im_trim.shape[1]), OVERLAP_VAL, dtype=np.uint8)
 
             # 長辺を基本サイズに拡縮
-            scale = img_base_size / max(im_bin.shape[0], im_bin.shape[1])
+            scale = img_base_size / max(im_trim.shape[0], im_trim.shape[1])
             im_base = cv2.resize(im_trim, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
             im_bin_base = cv2.resize(im_bin_trim, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
 
@@ -395,7 +380,7 @@ def layout_images_randomly_wo_overlap(
                     cv2.waitKey(1)
 
                 # 重なりの確認
-                if (_canv_ol > v).sum() == 0:
+                if (_canv_ol > OVERLAP_VAL).sum() == 0:
                     ok = True
 
                     canvas = _canv
@@ -412,6 +397,221 @@ def layout_images_randomly_wo_overlap(
     if show:
         cv2.destroyAllWindows()
 
+    return canvas
+
+
+def _trim_bb_image(image: np.ndarray) -> np.ndarray:
+    """imageの余白を除去してトリミング"""
+    assert image.shape[2] == 3  # 3チャネルのカラー画像とする
+
+    thr = 5  # 二値化の閾値
+    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
+
+    im_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, im_bin = cv2.threshold(im_gray, 255 - thr, OVERLAP_VAL, cv2.THRESH_BINARY_INV)
+    wh = np.where(im_bin == OVERLAP_VAL)
+    y0 = min(wh[0])
+    x0 = min(wh[1])
+    y1 = max(wh[0])
+    x1 = max(wh[1])
+
+    trim = image[y0:y1, x0:x1, :]
+
+    return trim
+
+
+def _rotate_2d(pt: tuple[float, float], degree: float, *, org: tuple[float, float] = (0, 0)) -> tuple[float, float]:
+    """2次元座標をorgを原点として回転"""
+    x = pt[0] - org[0]
+    y = pt[1] - org[1]
+    rad = math.radians(degree)
+    rot_x = x * math.cos(rad) - y * math.sin(rad)
+    rot_y = x * math.sin(rad) + y * math.cos(rad)
+
+    return (rot_x + org[0], rot_y + org[1])
+
+
+def _layout_voronoi(
+    is_circle: bool, width: int, height: int, margin: int, images: list[np.ndarray], show: bool
+) -> np.ndarray:
+    """画像を重ならないように重心ボロノイ分割で決めた位置にランダムに配置する
+
+    Args:
+        is_circle (bool): 出力画像が円形か否か
+        width (int): 出力画像の幅
+        height (int): 出力画像の高さ (is_circleならwidthと同じであること)
+        margin (int): 出力画像の外縁につける余白サイズ
+        images (list[np.ndarray]): 配置画像ソース
+        show (bool): 計算中の画像を画面表示するならTrue
+    """
+    assert not is_circle or (is_circle and width == height)
+
+    WHITE = (255, 255, 255)
+    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
+
+    # 各カードの配置位置と範囲を計算 (x, yで計算)
+    if is_circle:
+        c = width / 2
+        r = width / 2 - margin
+        bnd_pts = [(c + r * np.cos(x / 180.0 * np.pi), c + r * np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
+    else:
+        bnd_pts = [
+            (margin, margin),
+            (width - margin, margin),
+            (width - margin, height - margin),
+            (margin, height - margin),
+        ]
+
+    # 重心ボロノイ分割で各画像の中心位置と範囲を取得
+    # (範囲は目安であり変わっても良い)
+    # NOTE: ここのshowは毎回止まってしまうのでデバッグ時に手動でTrueにする
+    pos_images, rgn_images = cvt(bnd_pts, len(images), show_step=None)
+
+    # キャンバスの作成
+    # canvas:
+    #   最終的に出力する画像 (3ch)
+    #   シンボルの画像位置が決まるごとに重畳され、最後に余白(canvas_olで0の箇所)がWHITEで塗りつぶされる
+    # canvas_ol:
+    #   重なりチェックをするためのマスク画像 (1ch),
+    #   描画後に(0またはOVERLAP_VAL)以外の値があったら、その画素は重なりがあったことを意味する
+    canvas, canv_ol = _make_canvas(is_circle, width, height, margin)
+
+    # 各画像をpos_imagesに配置
+    for i_img, img in enumerate(images):
+        # 元画像の余白を除去して外接矩形でトリミング
+        im_trim = _trim_bb_image(img)
+        im_h = im_trim.shape[0]
+        im_w = im_trim.shape[1]
+
+        pos = pos_images[i_img]  # ボロノイ領域の重心 (描画の中心座標とする) (x, y)
+        rgn = rgn_images[i_img]  # ボロノイ領域境界 (x, y)
+        # 貼り付ける画像の最大サイズは、ボロノイ領域の最大長に長辺が入るサイズとする
+        mx_len_rgn = max([np.linalg.norm(np.array(p1) - np.array(p2)) for p1 in rgn for p2 in rgn])
+
+        init_deg = random.randint(0, 360)  # 初期角度をランダムに決める
+
+        ok = False
+        scl = 100
+        while scl > 5:
+            # 元画像の対角長とボロノイ領域の最大長が一致するスケールを100%としてスケールを計算
+            l_lngside = max(im_trim.shape[0], im_trim.shape[1])  # 元画像の長辺長
+            scl_r = mx_len_rgn / l_lngside * (scl / 100)
+            for deg in range(0, 180, 10):  # 画像を少しずつ回転 (矩形で試しているので180度までの確認で良い)
+                # 画像と同サイズの矩形をキャンバスに重畳描画
+                lt = _rotate_2d((-im_w * scl_r / 2, -im_h * scl_r / 2), deg + init_deg)
+                rt = _rotate_2d((+im_w * scl_r / 2, -im_h * scl_r / 2), deg + init_deg)
+                lb = _rotate_2d((+im_w * scl_r / 2, +im_h * scl_r / 2), deg + init_deg)
+                rb = _rotate_2d((-im_w * scl_r / 2, +im_h * scl_r / 2), deg + init_deg)
+
+                lt = (lt[0] + pos[0], lt[1] + pos[1])
+                rt = (rt[0] + pos[0], rt[1] + pos[1])
+                lb = (lb[0] + pos[0], lb[1] + pos[1])
+                rb = (rb[0] + pos[0], rb[1] + pos[1])
+
+                # 重なりなく描画できるか確認
+                # 画像貼り付け位置にマスクを描画
+                mask_img = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
+                _pts = np.array([lt, rt, lb, rb], dtype=int)
+                cv2.fillConvexPoly(mask_img, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
+
+                # ボロノイ境界を超えない制約をつけるために境界線を描画
+                # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
+                # 参考: https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
+                _canv_ol = canv_ol.copy()  # ボロノイ境界はmarginなど他のマスクと重なることがあるので、重畳ではなくOVERLAP_VALの描画にする
+                _pts = np.array(rgn).reshape((-1, 1, 2)).astype(np.int32)
+                cv2.polylines(_canv_ol, [_pts], True, OVERLAP_VAL, thickness=1, lineType=cv2.LINE_4)
+
+                # 画像マスクとボロノイ境界マスクを重畳
+                _canv_ol += mask_img
+
+                if show:
+                    cv2.imshow("canv_overlap", _canv_ol)
+                    cv2.waitKey(1)
+
+                # 重なりの確認
+                if (_canv_ol > OVERLAP_VAL).sum() == 0:
+                    ok = True
+
+                    # 重なりがなければ改めてマスクに画像マスクを重畳
+                    canv_ol += mask_img
+
+                    # キャンバスに重畳 (マスク処理)
+                    im_mask = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
+                    _pts = np.array([lt, rt, lb, rb], dtype=int)
+                    cv2.fillConvexPoly(im_mask, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
+
+                    _im_scl = cv2.resize(im_trim, None, fx=scl_r, fy=scl_r, interpolation=cv2.INTER_CUBIC)
+                    _im_rot = rotate_fit(_im_scl, -(deg + init_deg), flags=cv2.INTER_CUBIC, borderValue=WHITE)
+                    dx = pos[0] - _im_rot.shape[1] / 2
+                    dy = pos[1] - _im_rot.shape[0] / 2
+                    mv_mat = np.float32([[1, 0, dx], [0, 1, dy]])
+                    im_rnd = cv2.warpAffine(_im_rot, mv_mat, (width, height), flags=cv2.INTER_CUBIC, borderValue=WHITE)
+                    canvas = np.where(im_mask[:, :, np.newaxis] != 0, im_rnd, canvas)
+
+                    if show:
+                        cv2.imshow("canvas", canvas)
+                        cv2.waitKey(1)
+
+                    break
+            if ok:
+                break
+
+            scl *= 0.95  # 前回の大きさを基準に一定割合だけ縮小
+
+    if not ok:
+        # ここでOKになっていないということは画像を限界まで小さくしてもボロノイ領域に収まらなかったことを意味するので例外とする
+        raise NotImplementedError("画像がボロノイ領域内に描画できずレイアウトに失敗")
+
+    if show:
+        cv2.destroyAllWindows()
+
+    # 最終キャンバスに重畳 (マスク処理)
+    canvas = np.where(canv_ol[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
+
+    return canvas
+
+
+def layout_images_randomly_wo_overlap(
+    images: list[np.ndarray],
+    image_indexes: list[int],
+    canv_size: int | tuple[int, int],
+    margin: int,
+    *,
+    method: Literal["random", "voronoi"] = "random",
+    draw_frame: bool = False,
+    show: bool = False,
+) -> np.ndarray:
+    """画像を重ならないように配置する
+
+    Args:
+        images (list[np.ndarray]): 画像リスト
+        image_indexes (list[int]): 使用する画像のインデックスのリスト
+        canv_size (Union[int, tuple[int, int]]):
+            配置先の画像サイズ. intなら円の直径、tuple[int, int]なら矩形の幅, 高さとする
+        margin (int): 配置先の画像の外縁につける余白サイズ
+        draw_frame (bool): 印刷を想定した枠を描画するならTrue
+        show (bool): (optional) 計算中の画像を画面表示するならTrue
+
+    Returns:
+        np.ndarray: カード画像
+    """
+    tar_images = [images[i] for i in image_indexes]
+
+    # 出力先画像を初期化
+    is_circle: bool = False
+    if isinstance(canv_size, int):
+        width = height = canv_size
+        is_circle = True
+    else:
+        width, height = canv_size
+
+    if method == "random":
+        canvas = _layout_random(is_circle, width, height, margin, tar_images, show)
+    elif method == "voronoi":
+        canvas = _layout_voronoi(is_circle, width, height, margin, tar_images, show)
+    else:
+        raise ValueError(f"method ('{method}') の指定ミス")
+
     if draw_frame:
         gray = (127, 127, 127)
         if is_circle:
@@ -424,11 +624,11 @@ def layout_images_randomly_wo_overlap(
     return canvas
 
 
-def merge_pdf(pdf_paths: List[str], output_pdf: str):
+def merge_pdf(pdf_paths: list[str], output_pdf: str):
     """PDFファイルをマージして新たなPDFファイルを出力
 
     Args:
-        pdf_paths (List[str]): マージ元のPDFファイルパス, 記載の順序で結合される
+        pdf_paths (list[str]): マージ元のPDFファイルパス, 記載の順序で結合される
         output_pdf (str): 出力PDFファイルのパス
     """
     output_dir = os.path.dirname(output_pdf)
@@ -443,7 +643,7 @@ def merge_pdf(pdf_paths: List[str], output_pdf: str):
 
 
 def images_to_pdf(
-    images: List[np.ndarray],
+    images: list[np.ndarray],
     pdf_path: str,
     *,
     dpi: int = 300,
@@ -454,7 +654,7 @@ def images_to_pdf(
     """画像セットを並べてPDF化し保存
 
     Args:
-        images (List[np.ndarray]): 画像セット, すべて画像サイズは同じとする
+        images (list[np.ndarray]): 画像セット, すべて画像サイズは同じとする
         pdf_path (str): 出力するPDFのフルパス
         dpi (int, optional): PDFの解像度. Defaults to 300.
         card_width_mm (int, optional): 画像1枚の長辺サイズ(mm). Defaults to 95.
@@ -540,13 +740,14 @@ def main():
     n_symbols_per_card: int = 8  # カード1枚当たりのシンボル数
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
+    layout_method: Literal["random", "voronoi"] = "voronoi"
     # PDFの設定
     dpi = 300  # 解像度
     card_size_mm = 95  # カードの長辺サイズ[mm]
     page_size_mm = (210, 297)  # PDFの(幅, 高さ)[mm]
 
     # その他
-    seed: Optional[int] = None  # 乱数種
+    seed: int | None = 0  # 乱数種
     gen_card_images: bool = True  # (主にデバッグ用) もし output_dir にある生成済みの画像群を使うならFalse
 
     # ========
@@ -558,6 +759,7 @@ def main():
 
     # 乱数初期化
     random.seed(seed)
+    np.random.seed(seed)
 
     # ========
     # メイン
@@ -577,7 +779,7 @@ def main():
 
         if gen_card_images:
             card_img = layout_images_randomly_wo_overlap(
-                images, image_indexes, card_img_size, card_margin, draw_frame=True
+                images, image_indexes, card_img_size, card_margin, draw_frame=True, method=layout_method
             )
             cv2.imwrite(path, card_img)
         else:
