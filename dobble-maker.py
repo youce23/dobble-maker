@@ -150,11 +150,11 @@ def make_symbol_combinations(n_symbols_per_card: int) -> tuple[list[list[int]], 
     for i in range(n):
         pairs.append([j * n + i for j in range(n)] + [n * n + n])
 
-    # 最初の1枚
+    # 最後の1枚
     pairs.append([n * n + i for i in range(n + 1)])
 
     n_cards = n_symbols_per_card * (n_symbols_per_card - 1) + 1
-    assert len(pairs) == n_cards  # 参考サイトを参照
+    assert len(pairs) == n_cards
 
     if __debug__:
         _n = len(pairs)
@@ -733,11 +733,11 @@ def main():
     # パラメータ設定
     # ============
     # ファイル名
-    image_dir = "images"  # 入力画像ディレクトリ
+    image_dir = "samples"  # 入力画像ディレクトリ
     output_dir = "output"  # 出力画像ディレクトリ
     pdf_name = "card.pdf"  # 出力するPDF名
     # カードの設定
-    n_symbols_per_card: int = 8  # カード1枚当たりのシンボル数
+    n_symbols_per_card: int = 5  # カード1枚当たりのシンボル数
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
     layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
