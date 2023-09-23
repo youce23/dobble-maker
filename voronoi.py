@@ -140,6 +140,8 @@ def cvt(
     """
     # 母点の初期値として、領域に含まれるランダムな点群を生成
     points = cast(list[tuple[float, float]], _rand_pts_in_poly(bounding_points, n_site))
+    if n_iters < 1:
+        raise ValueError(f"n_iters ({n_iters}) は 1 以上でなければならない")
 
     for i in range(n_iters):
         # 有限ボロノイ図を計算
