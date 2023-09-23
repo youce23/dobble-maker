@@ -98,7 +98,7 @@ def is_valid_n_symbols_per_card(n: int) -> bool:
     return flg
 
 
-def make_symbol_combinations(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
+def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
     """各カードに記載するシンボルの一覧を生成
 
     参考:
@@ -765,7 +765,7 @@ def main():
     # メイン
     # ========
     # 各カード毎の組み合わせを生成
-    pairs, n_symbols = make_symbol_combinations(n_symbols_per_card)
+    pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
 
     # image_dirからn_symbols数の画像を取得
     images, _ = load_images(image_dir, n_symbols)
