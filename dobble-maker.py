@@ -122,11 +122,6 @@ def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
     """
     assert is_valid_n_symbols_per_card(n_symbols_per_card)
     n = n_symbols_per_card - 1
-    if n == 1:
-        a = b = 1
-    else:
-        _, (a, b) = is_prime_power(n)  # n を素数と指数に分解
-    assert n == a**b
 
     # 位数を n とするガロア体
     # 0 以上 n 未満の正の整数で構成される世界のこと。
