@@ -1,5 +1,4 @@
 import glob
-import math
 import os
 import random
 import tempfile
@@ -399,7 +398,7 @@ def _trim_bb_image(image: np.ndarray) -> np.ndarray:
     """imageの余白を除去してトリミング"""
     assert image.shape[2] == 3  # 3チャネルのカラー画像とする
 
-    thr = 5  # 二値化の閾値
+    thr = 1  # 二値化の閾値
     OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
 
     im_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -413,17 +412,6 @@ def _trim_bb_image(image: np.ndarray) -> np.ndarray:
     trim = image[y0:y1, x0:x1, :]
 
     return trim
-
-
-def _rotate_2d(pt: tuple[float, float], degree: float, *, org: tuple[float, float] = (0, 0)) -> tuple[float, float]:
-    """2次元座標をorgを原点として回転"""
-    x = pt[0] - org[0]
-    y = pt[1] - org[1]
-    rad = math.radians(degree)
-    rot_x = x * math.cos(rad) - y * math.sin(rad)
-    rot_y = x * math.sin(rad) + y * math.cos(rad)
-
-    return (rot_x + org[0], rot_y + org[1])
 
 
 def _layout_voronoi(
@@ -472,11 +460,12 @@ def _layout_voronoi(
     canvas, canv_ol = _make_canvas(is_circle, width, height, margin)
 
     # 各画像をpos_imagesに配置
+    thr = 1
     for i_img, img in enumerate(images):
         # 元画像の余白を除去して外接矩形でトリミング
         im_trim = _trim_bb_image(img)
-        im_h = im_trim.shape[0]
-        im_w = im_trim.shape[1]
+        _im_gray = cv2.cvtColor(im_trim, cv2.COLOR_BGR2GRAY)
+        _, im_trim_bin = cv2.threshold(_im_gray, 255 - thr, OVERLAP_VAL, cv2.THRESH_BINARY_INV)
 
         pos = pos_images[i_img]  # ボロノイ領域の重心 (描画の中心座標とする) (x, y)
         rgn = rgn_images[i_img]  # ボロノイ領域境界 (x, y)
@@ -491,23 +480,15 @@ def _layout_voronoi(
             # 元画像の対角長とボロノイ領域の最大長が一致するスケールを100%としてスケールを計算
             l_lngside = max(im_trim.shape[0], im_trim.shape[1])  # 元画像の長辺長
             scl_r = mx_len_rgn / l_lngside * (scl / 100)
-            for deg in range(0, 180, 10):  # 画像を少しずつ回転 (矩形で試しているので180度までの確認で良い)
-                # 画像と同サイズの矩形をキャンバスに重畳描画
-                lt = _rotate_2d((-im_w * scl_r / 2, -im_h * scl_r / 2), deg + init_deg)
-                rt = _rotate_2d((+im_w * scl_r / 2, -im_h * scl_r / 2), deg + init_deg)
-                lb = _rotate_2d((+im_w * scl_r / 2, +im_h * scl_r / 2), deg + init_deg)
-                rb = _rotate_2d((-im_w * scl_r / 2, +im_h * scl_r / 2), deg + init_deg)
-
-                lt = (lt[0] + pos[0], lt[1] + pos[1])
-                rt = (rt[0] + pos[0], rt[1] + pos[1])
-                lb = (lb[0] + pos[0], lb[1] + pos[1])
-                rb = (rb[0] + pos[0], rb[1] + pos[1])
-
-                # 重なりなく描画できるか確認
-                # 画像貼り付け位置にマスクを描画
-                mask_img = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
-                _pts = np.array([lt, rt, lb, rb], dtype=int)
-                cv2.fillConvexPoly(mask_img, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
+            for deg in range(0, 360, 10):  # 画像を少しずつ回転
+                # 二値画像をマスク化して重なりなく描画できるか確認
+                _im_bin_scl = cv2.resize(im_trim_bin, None, fx=scl_r, fy=scl_r, interpolation=cv2.INTER_NEAREST)
+                _im_bin_rot = rotate_fit(_im_bin_scl, deg + init_deg, flags=cv2.INTER_NEAREST)
+                dx = pos[0] - _im_bin_rot.shape[1] / 2
+                dy = pos[1] - _im_bin_rot.shape[0] / 2
+                mv_mat = np.float32([[1, 0, dx], [0, 1, dy]])
+                im_bin_rnd = cv2.warpAffine(_im_bin_rot, mv_mat, (width, height), flags=cv2.INTER_NEAREST)
+                mask_img = np.where(im_bin_rnd[:, :] != 0, im_bin_rnd, 0)
 
                 # ボロノイ境界を超えない制約をつけるために境界線を描画
                 # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
@@ -530,18 +511,11 @@ def _layout_voronoi(
                     # 重なりがなければ改めてマスクに画像マスクを重畳
                     canv_ol += mask_img
 
-                    # キャンバスに重畳 (マスク処理)
-                    im_mask = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
-                    _pts = np.array([lt, rt, lb, rb], dtype=int)
-                    cv2.fillConvexPoly(im_mask, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
-
+                    # キャンバスにシンボル画像を重畳 (マスク処理)
                     _im_scl = cv2.resize(im_trim, None, fx=scl_r, fy=scl_r, interpolation=cv2.INTER_CUBIC)
-                    _im_rot = rotate_fit(_im_scl, -(deg + init_deg), flags=cv2.INTER_CUBIC, borderValue=WHITE)
-                    dx = pos[0] - _im_rot.shape[1] / 2
-                    dy = pos[1] - _im_rot.shape[0] / 2
-                    mv_mat = np.float32([[1, 0, dx], [0, 1, dy]])
+                    _im_rot = rotate_fit(_im_scl, deg + init_deg, flags=cv2.INTER_CUBIC, borderValue=WHITE)
                     im_rnd = cv2.warpAffine(_im_rot, mv_mat, (width, height), flags=cv2.INTER_CUBIC, borderValue=WHITE)
-                    canvas = np.where(im_mask[:, :, np.newaxis] != 0, im_rnd, canvas)
+                    canvas = np.where(mask_img[:, :, np.newaxis] != 0, im_rnd, canvas)
 
                     if show:
                         cv2.imshow("canvas", canvas)
