@@ -20,16 +20,22 @@ from dobble_maker import (
 class Application(tk.Frame):
     def _select_input_dir(self):
         # 入力フォルダ選択ダイアログ
-        dir_name = filedialog.askdirectory(initialdir=self.input_dir.get())
+        dir = self.input_dir.get()
+        if not os.path.exists(dir):
+            # 存在しないフォルダがテキストボックスに入力されていたら
+            # ダイアログではカレントフォルダを初期表示
+            dir = os.getcwd()
+        dir_name = filedialog.askdirectory(initialdir=dir)
         if dir_name == "":  # キャンセル押下時
             return
         self.input_dir.set(dir_name)
 
     def _select_output_dir(self):
-        # 出力フォルダ選択ダイアログ
-        dir_name = filedialog.askdirectory(
-            initialdir=self.output_dir.get(), mustexist=False
-        )  # NOTE: Windows環境では mustexist=False が効かなかった
+        # 出力フォルダ選択ダイアログ (処理はself._select_input_dirと同様)
+        dir = self.output_dir.get()
+        if not os.path.exists(dir):
+            dir = os.getcwd()
+        dir_name = filedialog.askdirectory(initialdir=dir, mustexist=False)  # NOTE: Windows環境では mustexist=False が効かなかった
         if dir_name == "":  # キャンセル押下時
             return
         self.output_dir.set(dir_name)
@@ -109,16 +115,11 @@ class Application(tk.Frame):
         page_height_label = tk.Label(self.master, text="高さ[mm]")
         page_height_entry = tk.Entry(self.master, width=6, textvariable=self.page_height)
 
-        # レイアウト方法
-        self.layout_method = tk.StringVar(value="voronoi")
-        layout_method_label = tk.Label(self.master, text="レイアウト方法")
-        layout_method_entry = ttk.Combobox(
-            self.master,
-            width=8,
-            height=2,
-            state="readonly",
-            values=("random", "voronoi"),
-            textvariable=self.layout_method,
+        # レイアウトの均一性 (重心ボロノイ分割の反復回数)
+        self.cvt_level = tk.IntVar(value=5)
+        cvt_level_label = tk.Label(self.master, text="シンボルサイズの均一性 (1から10)")
+        cvt_level_entry = tk.Spinbox(
+            self.master, state="readonly", width=6, from_=1, to=10, increment=1, textvariable=self.cvt_level
         )
 
         # seed
@@ -176,8 +177,8 @@ class Application(tk.Frame):
         page_height_entry.grid(row=row, column=1, stick=tk.W)
         row += 1
 
-        layout_method_label.grid(row=row, column=0, stick=tk.W)
-        layout_method_entry.grid(row=row, column=1, stick=tk.W)
+        cvt_level_label.grid(row=row, column=0, stick=tk.W)
+        cvt_level_entry.grid(row=row, column=1, stick=tk.W)
         row += 1
 
         seed_label.grid(row=row, column=0, stick=tk.W)
@@ -253,6 +254,7 @@ class Application(tk.Frame):
         image_dir = self.input_dir.get()  # 入力画像ディレクトリ
         output_dir = self.output_dir.get()  # 出力画像ディレクトリ
         n_symbols_per_card = self.n_symbols.get()  # カード1枚当たりのシンボル数
+        n_voronoi_iters = 2 * self.cvt_level.get()  # 重心ボロノイ分割の反復回数
         # card_size_mm: カードの長辺サイズ[mm]
         # card_img_size: カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
         if _card_shape == "円":
@@ -299,7 +301,13 @@ class Application(tk.Frame):
             path = output_dir + os.sep + f"{i}.png"
 
             card_img = layout_images_randomly_wo_overlap(
-                images, image_indexes, card_img_size, card_margin, draw_frame=True, method=layout_method
+                images,
+                image_indexes,
+                card_img_size,
+                card_margin,
+                draw_frame=True,
+                method="voronoi",
+                n_voronoi_iters=n_voronoi_iters,
             )
             cv2.imwrite(path, card_img)
 
