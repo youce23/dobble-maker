@@ -31,7 +31,7 @@ dobble-maker では、任意の画像、カード当たりのシンボル数で�
 
 dobble-maker を clone し`Pipfile`に従って必要なパッケージをインストールします。
 
-`python dobble-maker.py`を実行し、`output`フォルダにカード毎の画像と`card.pdf`が生成されれば正常動作です。
+`python dobble_maker.py`を実行し、`output`フォルダにカード毎の画像と`card.pdf`が生成されれば正常動作です。
 
 - `samples`フォルダの画像からシンボル数`n=5`のカード画像が生成されます[^sample_source]
 
@@ -60,7 +60,7 @@ dobble-maker を clone し`Pipfile`に従って必要なパッケージをイン
 
 ## パラメータを修正
 
-clone したフォルダの直下にある`dobble-maker.py`の main にパラメータが定義されているので、適宜修正します。
+clone したフォルダの直下にある`dobble_maker.py`の main にパラメータが定義されているので、適宜修正します。
 
 最低限、以下を確認してください。
 
@@ -85,6 +85,7 @@ def main():
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
     layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
+    n_voronoi_iters = 20  # "voronoi"における反復回数
     # PDFの設定
     dpi = 300  # 解像度
     card_size_mm = 95  # カードの長辺サイズ[mm]
@@ -93,4 +94,4 @@ def main():
 
 ## 実行
 
-`python dobble-maker.py`で実行すると、`output_dir`で指定したフォルダに、カード毎の画像と、`pdf_name`で指定した PDF ファイルが生成されます。
+`python dobble_maker.py`で実行すると、`output_dir`で指定したフォルダに、カード毎の画像と、`pdf_name`で指定した PDF ファイルが生成されます。
