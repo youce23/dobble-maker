@@ -85,6 +85,7 @@ def main():
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
     layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
+    n_voronoi_iters = 20  # "voronoi"における反復回数
     # PDFの設定
     dpi = 300  # 解像度
     card_size_mm = 95  # カードの長辺サイズ[mm]
