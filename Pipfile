@@ -13,6 +13,7 @@ galois = "*"
 scipy = "*"
 shapely = "*"
 matplotlib = "*"
+pyinstaller = {file = ".venv/Lib/site-packages/pyinstaller"}
 
 [dev-packages]
 
