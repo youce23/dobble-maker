@@ -57,4 +57,13 @@ python ./waf distclean all
 ## exe の生成
 
 1. `build.bat`を実行
-2. 成功すると``に`dobble_maker_gui.exe`が生成される
+   1. `dobble-maker`直下で`pipenv run pip list`でインストール済みパッケージを確認し、不要なものは`exclude-module`で追加する（軽量化、ライセンスの整理が狙い）
+2. 成功すると`dobble-maker\release`に`dobble_maker_gui.exe`が生成される
+
+## ライセンスについて
+
+外部パッケージのライセンスは以下の手順で`dobble-maker\release\LICENSES`に追加する
+
+1. `dobble-maker`直下で`pipenv run pip list`を実行しインストール済みパッケージの一覧を確認
+2. `build.bat`で`exclude-module`指定のパッケージは exe に含まれないためこれらを上記の一覧から除外
+3. 残ったパッケージが exe に内包されるので、`.venv\Lib\site-packages`から該当パッケージのライセンスファイルを`release\LICENSES`以下にコピーする
