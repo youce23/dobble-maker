@@ -28,9 +28,7 @@ MinGW (gcc) あるいは Visual Studio C++ コンパイラ (msvc) などでコ�
 
 ### PyInstaller を git clone
 
-`.venv\Lib`に PyInstaller のソースを clone
-
-【追記】 **PyInstaller は普通に`pipenv install pyinstaller`で入れて、任意のフォルダでビルドした`run.exe, run_d.exe, runw.exe, runw_d.exe`を`Lib\site-packages\PyInstaller\bootloader\{OS}`に手動コピーする方が良いのかもしれない**
+`.venv\Lib\site-packages`に PyInstaller のソースを clone
 
 ```cmd
 git clone https://github.com/pyinstaller/pyinstaller
@@ -43,6 +41,8 @@ git clone https://github.com/pyinstaller/pyinstaller
 ```cmd
 python ./waf distclean all
 ```
+
+成功すると`bootloader\build`の`debug`, `debugw`, `release`, `releasew`にそれぞれ`run_d.exe`, `runw_d`, `run.exe`, `runw.exe`が生成される
 
 ### PyInstaller をインストール
 
