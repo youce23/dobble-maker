@@ -19,9 +19,11 @@ GUI 版 dobble-maker (dobble_maker_gui.py) のビルド手順のまとめ (cx_Fr
 ### ビルドの実行
 
 1. `build_cx_freeze.bat`を実行
-   1. 軽量化、ライセンスの整理のための除外パッケージ指定の手順は`setup_cx_freeze.py`のコメントを参照
+   1. 軽量化のための除外パッケージ指定の手順は`setup_cx_freeze.py`のコメントを参照
 2. 成功すると`dobble-maker\release`に`dobble_maker_gui.exe`が生成される
 
 ## ライセンスについて
 
 外部パッケージのライセンスは、`release\lib\library.zip`以下の`*.dist-info`フォルダに格納される
+
+- 仮想環境下に入っている外部パッケージは、ビルド時に除外指定をしていてもライセンスが格納される

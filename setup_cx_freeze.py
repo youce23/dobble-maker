@@ -17,27 +17,24 @@ build_exe_options = {
     ],
     # 除外したいパッケージ
     # "packages"だけ指定してexeの生成に成功したら、
-    # lib以下にある全フォルダ名をここで指定し、ビルドに失敗したら1個ずつ除外する
-    # さらにビルドが成功したら、記載済みにも関わらずフォルダが残っているものは指定が無効ということなので除外する
+    # lib以下にあるパッケージから不要なパッケージを選択し除外する。
+    #
+    # 以下の理由から、あまり減らしすぎない方が良い
+    # * 実行時にエラーが出ない不具合が生じることがある
+    # * もともと仮想環境が構築されていて余計なパッケージがほとんどなければサイズ削減効果が少ない
+    # * cx_Freezeが収集するライセンスはここでの指定に関わらず、インストール済みの全ての外部パッケージが対象
     "excludes": [
         "asyncio",
         "colorama",
-        "concurrent",
         "contourpy",
-        "distutils",
         "fontTools",
         "http",
-        "lib2to3",
         "lxml",
-        "multiprocessing",
         "pikepdf",
-        "pydoc_data",
         "setuptools",
         "test",
         "unittest",
         "wheel",
-        "xmlrpc",
-        "yaml",
     ],
 }
 
