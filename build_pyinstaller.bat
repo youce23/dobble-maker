@@ -5,9 +5,7 @@ pipenv run create-version-file version.yaml --outfile app.version
 
 pipenv run pyinstaller ^
     --clean ^
-    --onefile ^
     --noconsole ^
-    --name dobble_maker_gui.exe ^
     --version-file app.version ^
     --exclude-module altgraph ^
     --exclude-module colorama ^
@@ -34,6 +32,10 @@ pipenv run pyinstaller ^
     --add-data ".venv/Lib/site-packages/galois/_databases/prime_factors.db;./galois/_databases" ^
     dobble_maker_gui.py
 
-move /y .\dist\dobble_maker_gui.exe .\release
+rmdir /s /q release
+git checkout release
+
+move /y .\dist\dobble_maker_gui\dobble_maker_gui.exe release
+move /y .\dist\dobble_maker_gui\_internal release
 copy /y LICENSE .\release\LICENSES
 xcopy /y /i samples release\samples
