@@ -1,8 +1,8 @@
 # ビルド手順書
 
-GUI 版 dobble-maker (dobble_maker_gui.py) のビルド手順のまとめ (PyInstaller 使用[^about_nuitka])
+GUI 版 dobble-maker (dobble_maker_gui.py) のビルド手順のまとめ (cx_Freeze 使用[^about_other])
 
-[^about_nuitka]: nuitka も試したが exe の生成に失敗したので PyInstaller にした（`galois`が使っている`numba`が主原因？）
+[^about_other]: nuitka は exe の生成に失敗（`galois`が使っている`numba`が主原因？）、PyInstaller はウィルスチェックの誤検知に対処できなかった（bootloader のリビルド、onefile 除外を検証）ため cx_Freeze を選択
 
 動作確認環境
 
@@ -14,18 +14,16 @@ GUI 版 dobble-maker (dobble_maker_gui.py) のビルド手順のまとめ (PyIns
 
 ### バージョンの更新
 
-`version.yaml`を更新する
+`setup_cx_freeze.py`を更新する
 
 ### ビルドの実行
 
-1. `build.bat`を実行
-   1. `dobble-maker`直下で`pipenv run pip list`でインストール済みパッケージを確認し、不要なものは`exclude-module`で追加する（軽量化、ライセンスの整理が狙い）
+1. `build_cx_freeze.bat`を実行
+   1. 軽量化のための除外パッケージ指定の手順は`setup_cx_freeze.py`のコメントを参照
 2. 成功すると`dobble-maker\release`に`dobble_maker_gui.exe`が生成される
 
 ## ライセンスについて
 
-外部パッケージのライセンスは以下の手順で`dobble-maker\release\LICENSES`に追加する
+外部パッケージのライセンスは、`release\lib\library.zip`以下の`*.dist-info`フォルダに格納される
 
-1. `dobble-maker`直下で`pipenv run pip list`を実行しインストール済みパッケージの一覧を確認
-2. `build.bat`で`exclude-module`指定のパッケージは exe に含まれないためこれらを上記の一覧から除外
-3. 残ったパッケージが exe に内包されるので、`.venv\Lib\site-packages`から該当パッケージのライセンスファイルを`release\LICENSES`以下にコピーする
+- 仮想環境下に入っている外部パッケージは、ビルド時に除外指定をしていてもライセンスが格納される
