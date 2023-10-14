@@ -15,8 +15,7 @@ shapely = "*"
 matplotlib = "*"
 
 [dev-packages]
-pyinstaller = "*"
-pyinstaller-versionfile = "*"
+cx-freeze = "*"
 
 [requires]
 python_version = "3.11"
