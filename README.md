@@ -31,7 +31,7 @@ dobble-maker では、任意の画像、カード当たりのシンボル数で�
 
 ## ツールの入手と実行
 
-1. [Release - dobble-maker](https://github.com/youce23/dobble-maker/releases) から zip をダウンロード
+1. [Release - dobble-maker](https://github.com/youce23/dobble-maker/releases) から `dobble_maker_gui_v*.zip` をダウンロード
 2. zip ファイルを任意のフォルダに解凍
 3. 解凍されたフォルダ内の`dobble_maker_gui.exe`を実行
 
