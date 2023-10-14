@@ -1,16 +1,21 @@
 pipenv clean
-pipenv sync
+pipenv sync --dev
+
+pipenv run create-version-file version.yaml --outfile app.version
 
 pipenv run pyinstaller ^
     --clean ^
     --onefile ^
     --noconsole ^
     --name dobble_maker_gui.exe ^
+    --version-file app.version ^
     --exclude-module altgraph ^
     --exclude-module colorama ^
     --exclude-module contourpy ^
     --exclude-module deprecation ^
     --exclude-module fonttools ^
+    --exclude-module jinja2 ^
+    --exclude-module markupsafe ^
     --exclude-module lxml ^
     --exclude-module pefile ^
     --exclude-module pikepdf ^
@@ -18,6 +23,7 @@ pipenv run pyinstaller ^
     --exclude-module pip ^
     --exclude-module pyinstaller ^
     --exclude-module pyinstaller-hooks-contrib ^
+    --exclude-module pyinstaller-versionfile ^
     --exclude-module python-dateutil ^
     --exclude-module pywin32-ctypes ^
     --exclude-module setuptools ^

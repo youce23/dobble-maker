@@ -13,9 +13,10 @@ galois = "*"
 scipy = "*"
 shapely = "*"
 matplotlib = "*"
-pyinstaller = {file = ".venv/Lib/site-packages/pyinstaller"}
 
 [dev-packages]
+pyinstaller = {file = ".venv/Lib/site-packages/pyinstaller"}
+pyinstaller-versionfile = "*"
 
 [requires]
 python_version = "3.11"

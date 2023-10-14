@@ -50,11 +50,17 @@ python ./waf distclean all
    1. `dobble-maker\.venv`に仮想環境があるなら、`dobble-maker`直下で`pipenv shell`を実行
 2. `.venv`があるフォルダ (`dobble-maker`) をカレントとして以下を実行
    ```cmd
-   pipenv install -e .venv\Lib\site-packages\pyinstaller
+   pipenv install --dev -e .venv\Lib\site-packages\pyinstaller
    ```
    これにより、仮想環境にローカルビルドした Bootloader の PyInstaller がインストールされる
 
 ## exe の生成
+
+### バージョンの更新
+
+`version.yaml`を更新する
+
+### ビルドの実行
 
 1. `build.bat`を実行
    1. `dobble-maker`直下で`pipenv run pip list`でインストール済みパッケージを確認し、不要なものは`exclude-module`で追加する（軽量化、ライセンスの整理が狙い）
