@@ -22,7 +22,7 @@ IN THE SOFTWARE.
 
 import itertools
 
-import numpy
+import numpy as np
 from matplotlib import pyplot as plot
 from matplotlib.collections import LineCollection
 from scipy.spatial import ConvexHull
@@ -36,14 +36,14 @@ This sampling algorithm does not use rejection sampling.
 
 
 def disc_uniform_pick(N):
-    angle = (2 * numpy.pi) * numpy.random.random(N)
-    out = numpy.stack([numpy.cos(angle), numpy.sin(angle)], axis=1)
-    out *= numpy.sqrt(numpy.random.random(N))[:, None]
+    angle = (2 * np.pi) * np.random.random(N)
+    out = np.stack([np.cos(angle), np.sin(angle)], axis=1)
+    out *= np.sqrt(np.random.random(N))[:, None]
     return out
 
 
 def norm2(X):
-    return numpy.sqrt(numpy.sum(X**2))
+    return np.sqrt(np.sum(X**2))
 
 
 def normalized(X):
@@ -54,7 +54,7 @@ def normalized(X):
 
 
 def get_triangle_normal(A, B, C):
-    return normalized(numpy.cross(A, B) + numpy.cross(B, C) + numpy.cross(C, A))
+    return normalized(np.cross(A, B) + np.cross(B, C) + np.cross(C, A))
 
 
 def get_power_circumcenter(A, B, C):
@@ -63,21 +63,21 @@ def get_power_circumcenter(A, B, C):
 
 
 def is_ccw_triangle(A, B, C):
-    M = numpy.concatenate([numpy.stack([A, B, C]), numpy.ones((3, 1))], axis=1)
-    return numpy.linalg.det(M) > 0
+    M = np.concatenate([np.stack([A, B, C]), np.ones((3, 1))], axis=1)
+    return np.linalg.det(M) > 0
 
 
 def get_power_triangulation(S, R):
     # Compute the lifted weighted points
-    S_norm = numpy.sum(S**2, axis=1) - R**2
-    S_lifted = numpy.concatenate([S, S_norm[:, None]], axis=1)
+    S_norm = np.sum(S**2, axis=1) - R**2
+    S_lifted = np.concatenate([S, S_norm[:, None]], axis=1)
 
     # Special case for 3 points
     if S.shape[0] == 3:
         if is_ccw_triangle(S[0], S[1], S[2]):
-            return [[0, 1, 2]], numpy.array([get_power_circumcenter(*S_lifted)])
+            return [[0, 1, 2]], np.array([get_power_circumcenter(*S_lifted)])
         else:
-            return [[0, 2, 1]], numpy.array([get_power_circumcenter(*S_lifted)])
+            return [[0, 2, 1]], np.array([get_power_circumcenter(*S_lifted)])
 
     # Compute the convex hull of the lifted weighted points
     hull = ConvexHull(S_lifted)
@@ -90,7 +90,7 @@ def get_power_triangulation(S, R):
     )
 
     # Compute the Voronoi points
-    V = numpy.array([get_power_circumcenter(*S_lifted[tri]) for tri in tri_list])
+    V = np.array([get_power_circumcenter(*S_lifted[tri]) for tri in tri_list])
 
     # Job done
     return tri_list, V
@@ -150,9 +150,9 @@ def get_voronoi_cells(S, V, tri_list):
                 # Compute the segment parameters
                 A, B, C, D = S[u], S[v], S[w], V[i]
                 U = normalized(B - A)
-                I = A + numpy.dot(D - A, U) * U
+                I = A + np.dot(D - A, U) * U
                 W = normalized(I - D)
-                if numpy.dot(W, I - C) < 0:
+                if np.dot(W, I - C) < 0:
                     W = -W
 
                 # Add the segment
@@ -189,8 +189,8 @@ def display(S, R, tri_list, voronoi_cell_map):
     plot.axis("off")
 
     # Set min/max display size, as Matplotlib does it wrong
-    min_corner = numpy.amin(S, axis=0) - numpy.max(R)
-    max_corner = numpy.amax(S, axis=0) + numpy.max(R)
+    min_corner = np.amin(S, axis=0) - np.max(R)
+    max_corner = np.amax(S, axis=0) + np.max(R)
     plot.xlim((min_corner[0], max_corner[0]))
     plot.ylim((min_corner[1], max_corner[1]))
 
@@ -232,7 +232,7 @@ def main():
     # Generate samples, S contains circles center, R contains circles radius
     sample_count = 32
     S = 5 * disc_uniform_pick(sample_count)
-    R = 0.8 * numpy.random.random(sample_count) + 0.2
+    R = 0.8 * np.random.random(sample_count) + 0.2
 
     # Compute the power triangulation of the circles
     tri_list, V = get_power_triangulation(S, R)
