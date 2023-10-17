@@ -161,7 +161,7 @@ def get_voronoi_cells(S: NDArray, V: NDArray, tri_list: tuple[tuple[int, int, in
 
     # Keep track of which circles are included in the triangulation
     vertices_set = frozenset(itertools.chain(*tri_list))
-    assert len(vertices_set) == S.shape[0]
+    assert len(vertices_set) <= S.shape[0]
 
     # Keep track of which edge separate which triangles
     edge_map: dict[tuple[int, int], list[int]] = {}
@@ -297,7 +297,7 @@ def main():
 
     # Compute the Voronoi cells
     voronoi_cell_map = get_voronoi_cells(S, V, tri_list)
-    assert len(voronoi_cell_map) == sample_count
+    assert len(voronoi_cell_map) <= sample_count  # 各母点の強度次第で領域を持たない母点が生じることがある
 
     # Display the result
     display(S, R, tri_list, voronoi_cell_map)
