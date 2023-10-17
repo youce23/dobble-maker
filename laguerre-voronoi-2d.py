@@ -21,10 +21,12 @@ IN THE SOFTWARE.
 """
 
 import itertools
+from typing import Literal, cast
 
 import numpy as np
 from matplotlib import pyplot as plot
 from matplotlib.collections import LineCollection
+from numpy.typing import ArrayLike, NDArray
 from scipy.spatial import ConvexHull
 
 # --- Misc. geometry code -----------------------------------------------------
@@ -35,42 +37,69 @@ This sampling algorithm does not use rejection sampling.
 """
 
 
-def disc_uniform_pick(N):
-    angle = (2 * np.pi) * np.random.random(N)
-    out = np.stack([np.cos(angle), np.sin(angle)], axis=1)
-    out *= np.sqrt(np.random.random(N))[:, None]
+def disc_uniform_pick(N: int) -> NDArray:
+    """単位円内のランダムな点を取得
+
+    Args:
+        N (int): 点数
+
+    Returns:
+        np.ndarray (N, 2): 単位円内の(x, y)座標
+    """
+    angle: ArrayLike = (2 * np.pi) * np.random.random(N)  # N個のランダムな角度
+    out: NDArray = np.stack([np.cos(angle), np.sin(angle)], axis=1)  # angle に対応する単位円上の(x, y)
+    out *= np.sqrt(np.random.random(N))[:, None]  # 単位円状の点をランダムに単位円内に配置
+
+    assert out.shape == (N, 2)
     return out
 
 
-def norm2(X):
+def norm2(X: ArrayLike) -> np.float64:
+    """ベクトル X の L2 ノルム"""
     return np.sqrt(np.sum(X**2))
 
 
-def normalized(X):
+def normalized(X: ArrayLike) -> ArrayLike:
+    """ベクトル X を単位ベクトル化"""
     return X / norm2(X)
 
 
 # --- Delaunay triangulation --------------------------------------------------
 
 
-def get_triangle_normal(A, B, C):
-    return normalized(np.cross(A, B) + np.cross(B, C) + np.cross(C, A))
+def get_triangle_normal(A: ArrayLike, B: ArrayLike, C: ArrayLike) -> ArrayLike:
+    assert len(A) == len(B) == len(C) == 3
+
+    v = normalized(np.cross(A, B) + np.cross(B, C) + np.cross(C, A))
+    assert len(v) == 3
+    return v
 
 
-def get_power_circumcenter(A, B, C):
+def get_power_circumcenter(A: ArrayLike, B: ArrayLike, C: ArrayLike) -> ArrayLike:
+    assert len(A) == len(B) == len(C) == 3
+
     N = get_triangle_normal(A, B, C)
-    return (-0.5 / N[2]) * N[:2]
+    v: ArrayLike = (-0.5 / N[2]) * N[:2]
+    assert len(v) == 2
+    return v
 
 
-def is_ccw_triangle(A, B, C):
+def is_ccw_triangle(A: ArrayLike, B: ArrayLike, C: ArrayLike) -> bool:
+    assert len(A) == len(B) == len(C) == 2
+
     M = np.concatenate([np.stack([A, B, C]), np.ones((3, 1))], axis=1)
     return np.linalg.det(M) > 0
 
 
-def get_power_triangulation(S, R):
+def get_power_triangulation(S: NDArray, R: ArrayLike) -> tuple[tuple[tuple[int, int, int]], np.ndarray]:
+    assert S.shape == (len(R), 2)
+
     # Compute the lifted weighted points
-    S_norm = np.sum(S**2, axis=1) - R**2
-    S_lifted = np.concatenate([S, S_norm[:, None]], axis=1)
+    S_norm: ArrayLike = np.sum(S**2, axis=1) - R**2
+    S_lifted: NDArray = np.concatenate([S, S_norm[:, None]], axis=1)
+
+    assert len(S_norm) == len(R)
+    assert S_lifted.shape == (len(R), 3)
 
     # Special case for 3 points
     if S.shape[0] == 3:
@@ -83,16 +112,17 @@ def get_power_triangulation(S, R):
     hull = ConvexHull(S_lifted)
 
     # Extract the Delaunay triangulation from the lower hull
-    tri_list = tuple(
-        [a, b, c] if is_ccw_triangle(S[a], S[b], S[c]) else [a, c, b]
+    tri_list: tuple[tuple[int, int, int]] = tuple(
+        (a, b, c) if is_ccw_triangle(S[a], S[b], S[c]) else (a, c, b)
         for (a, b, c), eq in zip(hull.simplices, hull.equations)
         if eq[2] <= 0
     )
 
     # Compute the Voronoi points
-    V = np.array([get_power_circumcenter(*S_lifted[tri]) for tri in tri_list])
+    V: NDArray = np.array([get_power_circumcenter(*S_lifted[list(tri)]) for tri in tri_list])
 
     # Job done
+    assert V.shape == (len(tri_list), 2)
     return tri_list, V
 
 
@@ -100,47 +130,65 @@ def get_power_triangulation(S, R):
 
 """
 Compute the segments and half-lines that delimits each Voronoi cell
-  * The segments are oriented so that they are in CCW order
-  * Each cell is a list of (i, j), (A, U, tmin, tmax) where
-     * i, j are the indices of two ends of the segment. Segments end points are
-       the circumcenters. If i or j is set to None, then it's an infinite end
-     * A is the origin of the segment
-     * U is the direction of the segment, as a unit vector
-     * tmin is the parameter for the left end of the segment. Can be -1, for minus infinity
-     * tmax is the parameter for the right end of the segment. Can be -1, for infinity
-     * Therefore, the endpoints are [A + tmin * U, A + tmax * U]
+* The segments are oriented so that they are in CCW order
+* Each cell is a list of (i, j), (A, U, tmin, tmax) where
+    * i, j are the indices of two ends of the segment. Segments end points are
+    the circumcenters. If i or j is set to None, then it's an infinite end
+    * A is the origin of the segment
+    * U is the direction of the segment, as a unit vector
+    * tmin is the parameter for the left end of the segment. Can be -1, for minus infinity
+    * tmax is the parameter for the right end of the segment. Can be -1, for infinity
+    * Therefore, the endpoints are [A + tmin * U, A + tmax * U]
+
+各ボロノイセルを区切るセグメントとハーフラインを計算します。
+* セグメントはCCW（反時計回り）の順序であるように向き付けられています。
+* 各セルは (i, j), (A, U, tmin, tmax) のリストで構成されます。ここで
+    * i, j はセグメントの2つの端点のインデックスです。セグメントの端点は外接円の中心です。
+    i または j が None に設定されている場合、それは無限の端点です。
+    * A はセグメントの原点です。
+    * U はセグメントの方向で、単位ベクトルとして表現されます。
+    * tmin はセグメントの左端のパラメータです。マイナス無限大の場合、-1 になります。
+    * tmax はセグメントの右端のパラメータです。無限大の場合、-1 になります。
+    * したがって、端点は [A + tmin * U, A + tmax * U] です。
 """
 
+VOR_DATA_TYPE = list[tuple[tuple[int, int], tuple[ArrayLike, ArrayLike, Literal[0] | None, float | Literal[0] | None]]]
 
-def get_voronoi_cells(S, V, tri_list):
+
+def get_voronoi_cells(S: NDArray, V: NDArray, tri_list: tuple[tuple[int, int, int]]) -> dict[int, VOR_DATA_TYPE]:
+    assert S.shape[1] == 2
+    assert V.shape == (len(tri_list), 2)
+
     # Keep track of which circles are included in the triangulation
     vertices_set = frozenset(itertools.chain(*tri_list))
+    assert len(vertices_set) == S.shape[0]
 
     # Keep track of which edge separate which triangles
-    edge_map = {}
+    edge_map: dict[tuple[int, int], list[int]] = {}
     for i, tri in enumerate(tri_list):
         for edge in itertools.combinations(tri, 2):
-            edge = tuple(sorted(edge))
+            edge = cast(tuple[int, int], tuple(sorted(edge)))
             if edge in edge_map:
                 edge_map[edge].append(i)
             else:
                 edge_map[edge] = [i]
 
     # For each triangle
-    voronoi_cell_map = {i: [] for i in vertices_set}
+    voronoi_cell_map: dict[int, VOR_DATA_TYPE] = {i: [] for i in vertices_set}
 
     for i, (a, b, c) in enumerate(tri_list):
         # For each edge of the triangle
         for u, v, w in ((a, b, c), (b, c, a), (c, a, b)):
             # Finite Voronoi edge
-            edge = tuple(sorted((u, v)))
+            edge = cast(tuple[int, int], tuple(sorted((u, v))))
             if len(edge_map[edge]) == 2:
                 j, k = edge_map[edge]
                 if k == i:
                     j, k = k, j
 
                 # Compute the segment parameters
-                U = V[k] - V[j]
+                U: ArrayLike = V[k] - V[j]
+                assert len(U) == 2
                 U_norm = norm2(U)
 
                 # Add the segment
@@ -148,11 +196,16 @@ def get_voronoi_cells(S, V, tri_list):
             else:
                 # Infinite Voronoi edge
                 # Compute the segment parameters
-                A, B, C, D = S[u], S[v], S[w], V[i]
+                A: ArrayLike = S[u]
+                B: ArrayLike = S[v]
+                C: ArrayLike = S[w]
+                D: ArrayLike = V[i]
+                assert len(A) == len(B) == len(C) == len(D) == 2
                 U = normalized(B - A)
-                I = A + np.dot(D - A, U) * U
-                W = normalized(I - D)
-                if np.dot(W, I - C) < 0:
+                I_: ArrayLike = A + np.dot(D - A, U) * U
+                W = normalized(I_ - D)
+                assert len(U) == len(I_) == len(W) == 2
+                if np.dot(W, I_ - C) < 0:
                     W = -W
 
                 # Add the segment
@@ -160,7 +213,7 @@ def get_voronoi_cells(S, V, tri_list):
                 voronoi_cell_map[v].append(((-1, edge_map[edge][0]), (D, -W, None, 0)))
 
     # Order the segments
-    def order_segment_list(segment_list):
+    def order_segment_list(segment_list: VOR_DATA_TYPE) -> VOR_DATA_TYPE:
         # Pick the first element
         first = min((seg[0][0], i) for i, seg in enumerate(segment_list))[1]
 
@@ -231,14 +284,20 @@ def display(S, R, tri_list, voronoi_cell_map):
 def main():
     # Generate samples, S contains circles center, R contains circles radius
     sample_count = 32
-    S = 5 * disc_uniform_pick(sample_count)
-    R = 0.8 * np.random.random(sample_count) + 0.2
+    S: NDArray = 5 * disc_uniform_pick(sample_count)  # 指定半径の円内に sample_count の母点をサンプリング
+    R: ArrayLike = 0.8 * np.random.random(sample_count) + 0.2  # 各母点の強度(円の半径)を設定
+
+    assert S.shape == (sample_count, 2)
+    assert len(R) == sample_count
 
     # Compute the power triangulation of the circles
     tri_list, V = get_power_triangulation(S, R)
 
+    assert V.shape == (len(tri_list), 2)
+
     # Compute the Voronoi cells
     voronoi_cell_map = get_voronoi_cells(S, V, tri_list)
+    assert len(voronoi_cell_map) == sample_count
 
     # Display the result
     display(S, R, tri_list, voronoi_cell_map)
