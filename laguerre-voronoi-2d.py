@@ -278,6 +278,66 @@ def display(S, R, tri_list, voronoi_cell_map):
     plot.show()
 
 
+# --- power diagrams --------------------------------------------------------
+def power_diagrams(sites: NDArray, radius: ArrayLike):
+    """power diagramsを計算
+
+    Args:
+        sites (NDArray): 母点
+        radius (ArrayLike): 母点ごとの半径, 全て0だとボロノイ分割と同じ
+    """
+    n_sites = sites.shape[0]
+    assert sites.shape[1] == 2
+    assert len(radius) == n_sites
+
+    # Compute the power triangulation of the circles
+    tri_list, V = get_power_triangulation(sites, radius)
+
+    assert V.shape == (len(tri_list), 2)
+
+    # Compute the Voronoi cells
+    voronoi_cell_map = get_voronoi_cells(sites, V, tri_list)
+    assert len(voronoi_cell_map) <= n_sites  # 各母点の強度次第で領域を持たない母点が生じることがある
+
+    return voronoi_cell_map, tri_list
+
+
+def convert_power_diagrams_to_cells(voronoi_cell_map: dict[int, VOR_DATA_TYPE]) -> dict[int, list[tuple[float, float]]]:
+    """power_diagrams の戻り値からボロノイ領域毎の頂点座標に変換
+
+    Args:
+        voronoi_cell_map: power_diagrams()の同名の戻り値
+
+    Returns:
+        dict[int, list[tuple[float, float]]]: 頂点座標群
+    """
+
+    INF = 1e6
+
+    vecs: dict[int, list[tuple[float, float]]] = {}
+    for i, segment_list in voronoi_cell_map.items():
+        edge_map = {}
+        vecs[i] = []
+        for edge, (A, U, tmin, tmax) in segment_list:
+            edge = tuple(sorted(edge))
+            if edge not in edge_map:
+                if tmax is None:
+                    tmax = INF
+                if tmin is None:
+                    tmin = -INF
+
+                pt0 = A + tmin * U  # 線分の端点1
+                pt1 = A + tmax * U  # 線分の端点2
+                edge_map[edge] = (pt0, pt1)
+
+                if not any([np.allclose(pt0, v) for v in vecs[i]]):
+                    vecs[i].append(tuple(pt0))
+                if not any([np.allclose(pt1, v) for v in vecs[i]]):
+                    vecs[i].append(tuple(pt1))
+
+    return vecs
+
+
 # --- Main entry point --------------------------------------------------------
 
 
@@ -291,14 +351,7 @@ def main():
         assert S.shape == (sample_count, 2)
         assert len(R) == sample_count
 
-        # Compute the power triangulation of the circles
-        tri_list, V = get_power_triangulation(S, R)
-
-        assert V.shape == (len(tri_list), 2)
-
-        # Compute the Voronoi cells
-        voronoi_cell_map = get_voronoi_cells(S, V, tri_list)
-        assert len(voronoi_cell_map) <= sample_count  # 各母点の強度次第で領域を持たない母点が生じることがある
+        voronoi_cell_map, tri_list = power_diagrams(S, R)
 
         if len(voronoi_cell_map) == sample_count:
             # 全ての母点が領域を持つような初期値にならなかったらやり直す
