@@ -284,23 +284,30 @@ def display(S, R, tri_list, voronoi_cell_map):
 def main():
     # Generate samples, S contains circles center, R contains circles radius
     sample_count = 32
-    S: NDArray = 5 * disc_uniform_pick(sample_count)  # 指定半径の円内に sample_count の母点をサンプリング
-    R: ArrayLike = 0.8 * np.random.random(sample_count) + 0.2  # 各母点の強度(円の半径)を設定
+    while True:
+        S: NDArray = 5 * disc_uniform_pick(sample_count)  # 指定半径の円内に sample_count の母点をサンプリング
+        R: ArrayLike = 0.8 * np.random.random(sample_count) + 0.2  # 各母点の強度(円の半径)を設定
 
-    assert S.shape == (sample_count, 2)
-    assert len(R) == sample_count
+        assert S.shape == (sample_count, 2)
+        assert len(R) == sample_count
 
-    # Compute the power triangulation of the circles
-    tri_list, V = get_power_triangulation(S, R)
+        # Compute the power triangulation of the circles
+        tri_list, V = get_power_triangulation(S, R)
 
-    assert V.shape == (len(tri_list), 2)
+        assert V.shape == (len(tri_list), 2)
 
-    # Compute the Voronoi cells
-    voronoi_cell_map = get_voronoi_cells(S, V, tri_list)
-    assert len(voronoi_cell_map) <= sample_count  # 各母点の強度次第で領域を持たない母点が生じることがある
+        # Compute the Voronoi cells
+        voronoi_cell_map = get_voronoi_cells(S, V, tri_list)
+        assert len(voronoi_cell_map) <= sample_count  # 各母点の強度次第で領域を持たない母点が生じることがある
+
+        if len(voronoi_cell_map) == sample_count:
+            # 全ての母点が領域を持つような初期値にならなかったらやり直す
+            break
 
     # Display the result
     display(S, R, tri_list, voronoi_cell_map)
+
+    return
 
 
 if __name__ == "__main__":
