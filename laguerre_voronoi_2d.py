@@ -312,8 +312,17 @@ def convert_power_diagrams_to_cells(voronoi_cell_map: dict[int, VOR_DATA_TYPE]) 
         dict[int, list[tuple[float, float]]]: 頂点座標群
     """
 
-    INF = 1e3
+    # データに応じてINFを決める
+    # INF = 1e6
+    a_list = [seg[1][0] for vor_data_list in voronoi_cell_map.values() for seg in vor_data_list]
+    tmax_list = [seg[1][3] for vor_data_list in voronoi_cell_map.values() for seg in vor_data_list]
 
+    amax = np.max(np.abs(np.array(a_list)))
+    tmaxmax = np.nanmax(np.array(tmax_list, dtype=np.float64))  # tmax_listにはNoneがあるので対処
+
+    INF = float(10 * (amax + tmaxmax))
+
+    # データ変換
     vecs: dict[int, list[tuple[float, float]]] = {}
     for i, segment_list in voronoi_cell_map.items():
         edge_map = {}

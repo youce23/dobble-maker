@@ -53,7 +53,7 @@ def _bounded_voronoi(
     sites: list[tuple[float, float]],
     *,
     method: Literal["voronoi"] | Literal["power"] = "voronoi",
-    radius: np.ndarray,
+    radius: np.ndarray | None = None,
     show: bool = False,
 ) -> list[list[tuple[float, float]]]:
     """
@@ -75,20 +75,31 @@ def _bounded_voronoi(
         list[list[tuple[float, float]]]: 各ボロノイ領域の境界座標セット
     """
     # すべての母点のボロノイ領域を有界にするために，ダミー母点を追加
-    # (ダミー母点が成す三角形にsitesが内包されること)
-    dummy_sites = np.array([[1e6, 1e6], [1e6, -1e6], [-1e6, 0]])
+    # (ダミー母点が成す多角形にsitesが内包されること)
+    _poly = Polygon(bnd_pts)
+    _x0, _y0, _x1, _y1 = _poly.bounds
+    _center = np.array((_poly.centroid.x, _poly.centroid.y))
+    dummy_sites = (np.array([(_x0, _y0), (_x0, _y1), (_x1, _y1), (_x1, _y0)]) - _center) * 2 + _center
     gn_sites = np.concatenate([sites, dummy_sites])
 
     # ボロノイ図の計算
     if method == "voronoi":
         vor = Voronoi(gn_sites)
     elif method == "power":
-        gn_radius = np.concatenate([radius, np.zeros(len(dummy_sites))])
-        a, _ = power_diagrams(np.array(gn_sites), gn_radius)
-        if len(a) < len(gn_sites):
-            raise ValueError("領域を持たない母点が存在")
-        power_poly = convert_power_diagrams_to_cells(a)
-        assert sorted(power_poly.keys()) == list(range(len(gn_sites)))  # データが0からすべてそろっている
+        # power diagramsを計算すると、母点の位置と radius の関係によっては例外が発生することがある
+        # その場合はVoronoiで計算する (母点が近接していると初期の iteration で発生しやすい)
+        try:
+            if radius is None:
+                radius = np.zeros(len(sites))
+            gn_radius = np.concatenate([radius, np.zeros(len(dummy_sites))])
+            a, _ = power_diagrams(np.array(gn_sites), gn_radius)
+            if len(a) < len(gn_sites):
+                raise ValueError("領域を持たない母点が存在")
+            power_poly = convert_power_diagrams_to_cells(a)
+            assert sorted(power_poly.keys()) == list(range(len(gn_sites)))  # データが0からすべてそろっている
+        except Exception:
+            method = "voronoi"
+            vor = Voronoi(gn_sites)
     else:
         raise NotImplementedError(f"'{method}' is unsuppored")
 
@@ -103,10 +114,15 @@ def _bounded_voronoi(
         # 閉空間を考慮しないボロノイ領域
         if method == "voronoi":
             vor_poly = [vor.vertices[v] for v in vor.regions[vor.point_region[i]]]
+            vor_poly = Polygon(vor_poly)
         elif method == "power":
-            vor_poly = power_poly[i]
+            vor_poly = Polygon(power_poly[i])
+            if not vor_poly.is_simple:
+                # ポリゴンが捻じれていたら直す
+                # NOTE: 対処療法。なぜ捻じれるのかよくわからない。
+                vor_poly = vor_poly.convex_hull
         # 分割する領域をボロノイ領域の共通部分を計算
-        i_cell = bnd_poly.intersection(Polygon(vor_poly))
+        i_cell = bnd_poly.intersection(vor_poly)
 
         # 閉空間を考慮したボロノイ領域の頂点座標を格納
         vor_polys.append(list(i_cell.exterior.coords[:-1]))
@@ -120,6 +136,11 @@ def _bounded_voronoi(
         # 母点
         pnts_np = np.array(sites)
         ax.scatter(pnts_np[:, 0], pnts_np[:, 1])
+
+        # 母点の半径
+        if method == "power":
+            for s, r in zip(sites, radius):
+                ax.add_artist(plt.Circle(s, r, fill=True, alpha=0.4, lw=0.0, color="#8080f0", zorder=1))
 
         # ボロノイ領域
         poly_vor = PolyCollection(vor_polys, edgecolor="black", facecolors="None", linewidth=1.0)
@@ -135,7 +156,8 @@ def _bounded_voronoi(
         ax.set_ylim(ymin - 0.1, ymax + 0.1)
         ax.set_aspect("equal")
 
-        plt.show()
+        # plt.show()
+        plt.pause(0.01)
 
     assert len(vor_polys) == len(sites)
 
@@ -147,7 +169,7 @@ def cvt(
     n_site: int,
     *,
     method: Literal["voronoi"] | Literal["power"] = "voronoi",
-    radius: np.ndarray,
+    radius: np.ndarray | None = None,
     n_iters: int = 10,
     show_step: range | None = None,
 ) -> tuple[list[tuple[float, float]], list[list[tuple[float, float]]]]:
@@ -170,19 +192,7 @@ def cvt(
         raise ValueError(f"n_iters ({n_iters}) は 1 以上でなければならない")
 
     # 母点の初期値として、領域に含まれるランダムな点群を生成
-    if method == "voronoi":
-        points = cast(list[tuple[float, float]], _rand_pts_in_poly(bounding_points, n_site))
-    elif method == "power":
-        assert len(radius) == n_site
-        while True:
-            # 一度 power diagrams を計算してみて適切な点群になっているか確認
-            points = cast(list[tuple[float, float]], _rand_pts_in_poly(bounding_points, n_site))
-            a, _ = power_diagrams(np.array(points), radius)  # NOTE: 動作確認用に半径を全て0
-            if len(a) == n_site:
-                # 全ての母点が領域を持つような初期値にならなかったらやり直す
-                break
-    else:
-        raise NotImplementedError(f"'{method}' is unsuppored")
+    points = cast(list[tuple[float, float]], _rand_pts_in_poly(bounding_points, n_site))
 
     for i in range(n_iters):
         # 有限ボロノイ図を計算
@@ -236,38 +246,50 @@ def cpd(bounding_points: list[tuple[float, float]], n_site: int, *, n_iters: int
 
 
 if __name__ == "__main__":
+    seed = 0
+    np.random.seed(seed)
+
     # 動作確認
     n_sites = 12  # 母点
     n_iters = 20  # 反復数
+    cpd_rate = 2  # CPDの領域間のサイズ比調整値, 0 以上 おおむね 2 以下 (0だとほぼvoronoiと同じ, 大きすぎても内部でvoronoiと同様に処理される)
 
     # 円でCPD
-    circle = [(np.cos(x / 180.0 * np.pi), np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
+    circle = [(10000 * np.cos(x / 180.0 * np.pi), 5000 * np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
+    poly = Polygon(circle)
+    area_per_site = poly.area / n_sites  # 外側の図形の面積を母点で均等に分割した場合の面積を radius の基準とする
+    r_basis = np.sqrt(area_per_site / np.pi)  # 基準半径
+
     repeat = True
     while repeat:
+        # 初期値によって例外が生じることがあるので、その場合はやり直す
+        # (何回やっても通らない場合、cpd_rate (小さく), n_sites (減らす), 図形のアスペクト比(1:1に近づける)を見直し)
         repeat = False
+        radius = r_basis / 2 + cpd_rate * r_basis / 2 * np.random.random(n_sites)
         try:
-            # "power"だと途中の領域計算で何か失敗することがあり、その場合は最初からやり直す
-            radius = 0.2 * np.random.random(n_sites) + 0.2
             cvt(circle, n_sites, method="power", radius=radius, n_iters=n_iters, show_step=range(n_iters))
         except Exception:
             repeat = True
 
     # 矩形でCPD
     box = [(0, 0), (1, 0), (1, 1.5), (0, 1.5)]
+    poly = Polygon(box)
+    area_per_site = poly.area / n_sites
+    r_basis = np.sqrt(area_per_site / np.pi)
+
     repeat = True
     while repeat:
         repeat = False
+        radius = r_basis / 2 + cpd_rate * r_basis / 2 * np.random.random(n_sites)
         try:
-            # "power"だと途中の領域計算で何か失敗することがあり、その場合は最初からやり直す
-            radius = 0.2 * np.random.random(n_sites) + 0.2
             cvt(box, n_sites, method="power", radius=radius, n_iters=n_iters, show_step=range(n_iters))
         except Exception:
             repeat = True
 
     # 円でボロノイ分割
     circle = [(np.cos(x / 180.0 * np.pi), np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
-    cvt(circle, n_sites, n_iters=n_iters, show_step=range(0, n_iters, n_iters - 1))
+    cvt(circle, n_sites, n_iters=n_iters, show_step=range(n_iters))
 
     # 矩形でボロノイ分割
     box = [(0, 0), (1, 0), (1, 1.5), (0, 1.5)]
-    cvt(box, n_sites, n_iters=n_iters, show_step=range(0, n_iters, n_iters - 1))
+    cvt(box, n_sites, n_iters=n_iters, show_step=range(n_iters))
