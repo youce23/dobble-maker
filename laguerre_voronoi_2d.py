@@ -312,7 +312,7 @@ def convert_power_diagrams_to_cells(voronoi_cell_map: dict[int, VOR_DATA_TYPE]) 
         dict[int, list[tuple[float, float]]]: 頂点座標群
     """
 
-    INF = 1e6
+    INF = 1e3
 
     vecs: dict[int, list[tuple[float, float]]] = {}
     for i, segment_list in voronoi_cell_map.items():
