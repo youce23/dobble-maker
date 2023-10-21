@@ -68,6 +68,12 @@ def _bounded_voronoi(
             ボロノイ分割をする範囲を定義する凸包の境界
         sites (list[tuple[float, float]]):
             母点
+        method:
+            "voronoi": ボロノイ分割
+            "power": power diagrams
+        radius:
+            methodが"power"の場合のみ有効
+            各母点の半径
         show (bool, optional):
             Trueならボロノイ図を描画. Defaults to False.
 
@@ -181,6 +187,12 @@ def cvt(
         bounding_points (list[tuple[float, float]]):
             ボロノイ分割をする範囲を定義する凸包の境界
         n_site (int): 母点(site)の数
+        method:
+            "voronoi": ボロノイ分割
+            "power": power diagrams
+        radius:
+            methodが"power"の場合のみ有効
+            各母点の半径
         n_iters (int, optional): 重心を得るための反復数. Defaults to 10.
         show_step (range | None): 指定された回数の時にボロノイ図を表示する (Noneなら常に非表示)
 
@@ -198,41 +210,6 @@ def cvt(
         # 有限ボロノイ図を計算
         show = (show_step is not None) and (i in show_step)
         vor_regions = _bounded_voronoi(bounding_points, points, method=method, radius=radius, show=show)
-
-        # 新しい点(重心)を計算
-        new_points: list[tuple[float, float]] = []
-        for reg in vor_regions:
-            poly = Polygon(reg)
-            new_points.append((poly.centroid.x, poly.centroid.y))
-
-        points = new_points
-
-    return points, vor_regions
-
-
-def cpd(bounding_points: list[tuple[float, float]], n_site: int, *, n_iters: int = 10):
-    """CPD: Centroidal Power Diagrams
-
-    Power Diagramsで重心ボロノイ分割
-
-    Args:
-        bounding_points (list[tuple[float, float]]):
-            ボロノイ分割をする範囲を定義する凸包の境界
-        n_site (int): 母点数
-        n_iters (int, optional): _description_. Defaults to 10.
-
-    Returns:
-        list[tuple[float, float]]: 各ボロノイ領域の重心
-        list[list[tuple[float, float]]]]: 各ボロノイ領域の境界座標セット
-    """
-    # 母点の初期値として、領域に含まれるランダムな点群を生成
-    points = cast(list[tuple[float, float]], _rand_pts_in_poly(bounding_points, n_site))
-    if n_iters < 1:
-        raise ValueError(f"n_iters ({n_iters}) は 1 以上でなければならない")
-
-    for i in range(n_iters):
-        # 有限ボロノイ図を計算
-        vor_regions = _bounded_voronoi(bounding_points, points)
 
         # 新しい点(重心)を計算
         new_points: list[tuple[float, float]] = []
