@@ -430,7 +430,15 @@ def _rotate_2d(pt: tuple[float, float], degree: float, *, org: tuple[float, floa
 
 
 def _layout_voronoi(
-    is_circle: bool, width: int, height: int, margin: int, images: list[np.ndarray], show: bool, *, n_iters: int = 20
+    is_circle: bool,
+    width: int,
+    height: int,
+    margin: int,
+    images: list[np.ndarray],
+    show: bool,
+    *,
+    radius_p: float = 0.0,
+    n_iters: int = 20,
 ) -> np.ndarray:
     """画像を重ならないように重心ボロノイ分割で決めた位置にランダムに配置する
 
@@ -441,6 +449,7 @@ def _layout_voronoi(
         margin (int): 出力画像の外縁につける余白サイズ
         images (list[np.ndarray]): 配置画像ソース
         show (bool): 計算中の画像を画面表示するならTrue
+        radius_p: 各母点の半径を決めるパラメータ, 0.0なら通常のボロノイ分割
         n_iters (int): 重心ボロノイ分割の反復回数
     """
     assert not is_circle or (is_circle and width == height)
@@ -464,7 +473,18 @@ def _layout_voronoi(
     # 重心ボロノイ分割で各画像の中心位置と範囲を取得
     # (範囲は目安であり変わっても良い)
     # NOTE: ここのshowは毎回止まってしまうのでデバッグ時に手動でTrueにする
-    pos_images, rgn_images = cvt(bnd_pts, len(images), n_iters=n_iters, show_step=None)
+    repeat = True
+    n = 0
+    while repeat:
+        # radius_p を設定した場合に初期値によって例外が生じることがある(0.0指定時は生じたことはない)ので、その場合はやり直す
+        repeat = False
+        try:
+            pos_images, rgn_images = cvt(bnd_pts, len(images), radius_p=radius_p, n_iters=n_iters, show_step=None)
+        except Exception:
+            repeat = True
+        n += 1  # 繰り返し回数を設定
+        if n > 5:  # 一定回数以上試してもダメならパラメータ指定が良くないので例外を吐く
+            raise ValueError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)")
 
     # キャンバスの作成
     # canvas:
@@ -577,6 +597,7 @@ def layout_images_randomly_wo_overlap(
     margin: int,
     *,
     method: Literal["random", "voronoi"] = "random",
+    radius_p: float = 0.0,
     n_voronoi_iters: int = 20,
     draw_frame: bool = False,
     show: bool = False,
@@ -592,6 +613,7 @@ def layout_images_randomly_wo_overlap(
         method: レイアウト方法
             "random": ランダム配置
             "voronoi": 重心ボロノイ分割に基づき配置
+        radius_p: methodが"voronoi"の場合に各母点の半径を決めるパラメータ, 0.0なら通常のボロノイ分割
         n_voronoi_iters: method == "voronoi"の場合の反復回数
         draw_frame (bool): 印刷を想定した枠を描画するならTrue
         show (bool): (optional) 計算中の画像を画面表示するならTrue
@@ -612,7 +634,16 @@ def layout_images_randomly_wo_overlap(
     if method == "random":
         canvas = _layout_random(is_circle, width, height, margin, tar_images, show)
     elif method == "voronoi":
-        canvas = _layout_voronoi(is_circle, width, height, margin, tar_images, show, n_iters=n_voronoi_iters)
+        canvas = _layout_voronoi(
+            is_circle,
+            width,
+            height,
+            margin,
+            tar_images,
+            show,
+            radius_p=radius_p,
+            n_iters=n_voronoi_iters,
+        )
     else:
         raise ValueError(f"method ('{method}') の指定ミス")
 
@@ -745,6 +776,7 @@ def main():
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
     layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
+    radius_p: float = 1.2  # "voronoi"における各母点の半径を決めるパラメータ (0.0なら半径なし, つまり通常のボロノイ分割として処理)
     n_voronoi_iters = 20  # "voronoi"における反復回数
     # PDFの設定
     dpi = 300  # 解像度
@@ -790,6 +822,7 @@ def main():
                 card_margin,
                 draw_frame=True,
                 method=layout_method,
+                radius_p=radius_p,
                 n_voronoi_iters=n_voronoi_iters,
             )
             cv2.imwrite(path, card_img)
