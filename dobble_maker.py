@@ -221,6 +221,9 @@ def load_images(
             img = (img_bg * (1 - img[:, :, 3:] / 255) + img[:, :, :3] * (img[:, :, 3:] / 255)).astype(np.uint8)
         elif n_ch == 1:
             img = cv2.cvtColor(img, cv2.GRAY2BGR)
+        elif n_ch == 3:
+            # 3チャネルなら何もしない
+            pass
         else:
             raise IOError(f"{path} のチャネル数({n_ch})はサポート対象外")
         images.append(img)
