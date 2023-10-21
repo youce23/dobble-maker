@@ -784,6 +784,7 @@ def main():
     page_size_mm = (210, 297)  # PDFの(幅, 高さ)[mm]
 
     # その他
+    shuffle: bool = False  # True: 画像読み込みをシャッフルする
     seed: int | None = 0  # 乱数種
     gen_card_images: bool = True  # (主にデバッグ用) もし output_dir にある生成済みの画像群を使うならFalse
 
@@ -805,7 +806,7 @@ def main():
     pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
 
     # image_dirからn_symbols数の画像を取得
-    images, _ = load_images(image_dir, n_symbols)
+    images, _ = load_images(image_dir, n_symbols, shuffle=shuffle)
 
     # len(pairs)枚のカード画像を作成し、保存
     os.makedirs(output_dir, exist_ok=True)
