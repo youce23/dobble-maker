@@ -175,7 +175,7 @@ def cvt(
     n_site: int,
     *,
     method: Literal["voronoi"] | Literal["power"] = "voronoi",
-    radius: np.ndarray | None = None,
+    radius_p: float = 0.0,
     n_iters: int = 10,
     show_step: range | None = None,
 ) -> tuple[list[tuple[float, float]], list[list[tuple[float, float]]]]:
@@ -190,9 +190,9 @@ def cvt(
         method:
             "voronoi": ボロノイ分割
             "power": power diagrams
-        radius:
+        radius_p:
             methodが"power"の場合のみ有効
-            各母点の半径
+            各母点の半径を調整するパラメータ
         n_iters (int, optional): 重心を得るための反復数. Defaults to 10.
         show_step (range | None): 指定された回数の時にボロノイ図を表示する (Noneなら常に非表示)
 
@@ -205,6 +205,12 @@ def cvt(
 
     # 母点の初期値として、領域に含まれるランダムな点群を生成
     points = cast(list[tuple[float, float]], _rand_pts_in_poly(bounding_points, n_site))
+    radius = None
+    if method == "power":
+        poly = Polygon(bounding_points)
+        area_per_site = poly.area / n_sites  # 外側の図形の面積を母点で均等に分割した場合の面積を radius の基準とする
+        r_basis = np.sqrt(area_per_site / np.pi)  # 基準半径
+        radius = r_basis / 2 + radius_p * r_basis / 2 * np.random.random(n_sites)
 
     for i in range(n_iters):
         # 有限ボロノイ図を計算
@@ -233,33 +239,25 @@ if __name__ == "__main__":
 
     # 円でCPD
     circle = [(10000 * np.cos(x / 180.0 * np.pi), 5000 * np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
-    poly = Polygon(circle)
-    area_per_site = poly.area / n_sites  # 外側の図形の面積を母点で均等に分割した場合の面積を radius の基準とする
-    r_basis = np.sqrt(area_per_site / np.pi)  # 基準半径
 
     repeat = True
     while repeat:
         # 初期値によって例外が生じることがあるので、その場合はやり直す
         # (何回やっても通らない場合、cpd_rate (小さく), n_sites (減らす), 図形のアスペクト比(1:1に近づける)を見直し)
         repeat = False
-        radius = r_basis / 2 + cpd_rate * r_basis / 2 * np.random.random(n_sites)
         try:
-            cvt(circle, n_sites, method="power", radius=radius, n_iters=n_iters, show_step=range(n_iters))
+            cvt(circle, n_sites, method="power", radius_p=cpd_rate, n_iters=n_iters, show_step=range(n_iters))
         except Exception:
             repeat = True
 
     # 矩形でCPD
     box = [(0, 0), (1, 0), (1, 1.5), (0, 1.5)]
-    poly = Polygon(box)
-    area_per_site = poly.area / n_sites
-    r_basis = np.sqrt(area_per_site / np.pi)
 
     repeat = True
     while repeat:
         repeat = False
-        radius = r_basis / 2 + cpd_rate * r_basis / 2 * np.random.random(n_sites)
         try:
-            cvt(box, n_sites, method="power", radius=radius, n_iters=n_iters, show_step=range(n_iters))
+            cvt(box, n_sites, method="power", radius_p=cpd_rate, n_iters=n_iters, show_step=range(n_iters))
         except Exception:
             repeat = True
 
