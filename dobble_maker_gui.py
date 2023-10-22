@@ -66,7 +66,7 @@ class Application(tk.Frame):
         shuffle_entry = tk.Checkbutton(self.master, variable=self.shuffle)
 
         # カード当たりのシンボル数を入力するリスト
-        n_symbols_vals = [x for x in range(100) if is_valid_n_symbols_per_card(x)]
+        n_symbols_vals = [x for x in range(31) if is_valid_n_symbols_per_card(x)]
         self.n_symbols = tk.IntVar(value=5)
         n_symbols_label = tk.Label(self.master, text="カード当たりのシンボル数")
         n_symbols_entry = ttk.Combobox(
@@ -108,19 +108,32 @@ class Application(tk.Frame):
         # ページ幅 [mm]
         self.page_width = tk.IntVar(value=210)
         page_width_label = tk.Label(self.master, text="幅[mm]")
-        page_width_entry = tk.Entry(self.master, width=6, textvariable=self.page_width)
+        page_width_entry = tk.Spinbox(self.master, width=6, from_=1, to=1200, increment=1, textvariable=self.page_width)
 
         # PDF ページ高さ [mm]
         self.page_height = tk.IntVar(value=297)
         page_height_label = tk.Label(self.master, text="高さ[mm]")
-        page_height_entry = tk.Entry(self.master, width=6, textvariable=self.page_height)
+        page_height_entry = tk.Spinbox(
+            self.master, width=6, from_=1, to=1200, increment=1, textvariable=self.page_height
+        )
+
+        # レイアウト調整
+        layout_params_label = tk.Label(self.master, text="レイアウト調整")
 
         # レイアウトの均一性 (重心ボロノイ分割の反復回数)
         self.cvt_level = tk.IntVar(value=5)
-        cvt_level_label = tk.Label(self.master, text="シンボルサイズの均一性 (1から10)")
+        cvt_level_label = tk.Label(self.master, text="レイアウト均一性 (1から20)")
         cvt_level_entry = tk.Spinbox(
-            self.master, state="readonly", width=6, from_=1, to=10, increment=1, textvariable=self.cvt_level
+            self.master, state="readonly", width=6, from_=1, to=20, increment=1, textvariable=self.cvt_level
         )
+        cvt_level_desc = tk.Label(self.master, text="大きいほどシンボルサイズが均一かつ整列したレイアウトになります")
+        # シンボルサイズ比の調整パラメータ (power diagramsにおける各シンボルの半径調整パラメータ)
+        self.cvt_radius = tk.IntVar(value=5)
+        cvt_radius_label = tk.Label(self.master, text="シンボルサイズ比調整 (0から20)")
+        cvt_radius_entry = tk.Spinbox(
+            self.master, state="readonly", width=6, from_=0, to=20, increment=1, textvariable=self.cvt_radius
+        )
+        cvt_radius_desc = tk.Label(self.master, text="大きいほどシンボルサイズに差が生じやすくなります")
 
         # seed
         self.seed = tk.IntVar(value=0)
@@ -135,13 +148,13 @@ class Application(tk.Frame):
         # ----------------
         row = 0
         input_dir_label.grid(row=row, column=0, stick=tk.W)
-        input_dir_entry.grid(row=row, column=1, stick=tk.W)
-        input_dir_button.grid(row=row, column=2, stick=tk.W)
+        input_dir_entry.grid(row=row, column=1, stick=tk.W, columnspan=2)
+        input_dir_button.grid(row=row, column=3, stick=tk.W)
         row += 1
 
         output_dir_label.grid(row=row, column=0, stick=tk.W)
-        output_dir_entry.grid(row=row, column=1, stick=tk.W)
-        output_dir_button.grid(row=row, column=2, stick=tk.W)
+        output_dir_entry.grid(row=row, column=1, stick=tk.W, columnspan=2)
+        output_dir_button.grid(row=row, column=3, stick=tk.W)
         row += 1
 
         shuffle_label.grid(row=row, column=0, stick=tk.W)
@@ -177,8 +190,15 @@ class Application(tk.Frame):
         page_height_entry.grid(row=row, column=1, stick=tk.W)
         row += 1
 
-        cvt_level_label.grid(row=row, column=0, stick=tk.W)
+        layout_params_label.grid(row=row, column=0, stick=tk.W, columnspan=3)
+        row += 1
+        cvt_level_label.grid(row=row, column=0, stick=tk.E)
         cvt_level_entry.grid(row=row, column=1, stick=tk.W)
+        cvt_level_desc.grid(row=row, column=2, stick=tk.W)
+        row += 1
+        cvt_radius_label.grid(row=row, column=0, stick=tk.E)
+        cvt_radius_entry.grid(row=row, column=1, stick=tk.W)
+        cvt_radius_desc.grid(row=row, column=2, stick=tk.W)
         row += 1
 
         seed_label.grid(row=row, column=0, stick=tk.W)
@@ -255,6 +275,8 @@ class Application(tk.Frame):
         output_dir = self.output_dir.get()  # 出力画像ディレクトリ
         n_symbols_per_card = self.n_symbols.get()  # カード1枚当たりのシンボル数
         n_voronoi_iters = 2 * self.cvt_level.get()  # 重心ボロノイ分割の反復回数
+        radius_p = self.cvt_radius.get() / 10  # 重心ボロノイ分割の母点の半径調整パラメータ
+
         # card_size_mm: カードの長辺サイズ[mm]
         # card_img_size: カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
         if _card_shape == "円":
@@ -307,6 +329,7 @@ class Application(tk.Frame):
                 card_margin,
                 draw_frame=True,
                 method="voronoi",
+                radius_p=radius_p,
                 n_voronoi_iters=n_voronoi_iters,
             )
             cv2.imwrite(path, card_img)
