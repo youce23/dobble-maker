@@ -66,7 +66,7 @@ class Application(tk.Frame):
         shuffle_entry = tk.Checkbutton(self.master, variable=self.shuffle)
 
         # カード当たりのシンボル数を入力するリスト
-        n_symbols_vals = [x for x in range(100) if is_valid_n_symbols_per_card(x)]
+        n_symbols_vals = [x for x in range(31) if is_valid_n_symbols_per_card(x)]
         self.n_symbols = tk.IntVar(value=5)
         n_symbols_label = tk.Label(self.master, text="カード当たりのシンボル数")
         n_symbols_entry = ttk.Combobox(
