@@ -318,7 +318,11 @@ def _make_canvas(is_circle: bool, width: int, height: int, margin: int) -> tuple
     return canvas, canv_ol
 
 
-def _get_interpolation(scale: float, *, downsize=cv2.INTER_AREA, upsize=cv2.INTER_CUBIC):
+def _get_interpolation(scale: float):
+    """cv2.resize の interpolation の値を決める"""
+    downsize = cv2.INTER_AREA  # 縮小用
+    upsize = cv2.INTER_CUBIC  # 拡大用
+
     return downsize if scale < 1 else upsize
 
 
@@ -1147,6 +1151,7 @@ def make_image_of_thumbnails_with_names(
 
 
 def detect_encoding(file_path: str) -> str:
+    """テキストファイルのencodingを推定"""
     with open(file_path, "rb") as f:
         data = f.read()
 
@@ -1154,6 +1159,20 @@ def detect_encoding(file_path: str) -> str:
 
 
 def load_image_list(image_list_path: str) -> dict[str, str]:
+    """画像リストの読み込み
+
+    Args:
+        image_list_path (str):
+            画像リストファイルパス (.xlsx|.csv)
+            * "ファイル名"列, 及び"名前"列を持つこと（列名は先頭行）
+            * "ファイル名": 拡張子を除く画像ファイル名
+            * "名前": カードに描画する表示名
+
+    Returns:
+        dict[str, str]:
+            key: ファイル名
+            value: 名前
+    """
     # 画像リストの読み込み
     # "ファイル名"列: 拡張子を除くファイル名
     # "名前"列: カードに描画する
@@ -1199,7 +1218,22 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
     return data_list
 
 
-def sort_images_by_image_list(images: list[np.ndarray], image_paths: list[str], image_names: dict[str, str]):
+def sort_images_by_image_list(
+    images: list[np.ndarray], image_paths: list[str], image_names: dict[str, str]
+) -> tuple[list[np.ndarray], list[str]]:
+    """画像と画像名を辞書に記載の順序でソートする
+
+    Args:
+        images (list[np.ndarray]): 入力画像
+        image_paths (list[str]): 各入力画像のファイルパス
+        image_names (dict[str, str]):
+            key: 拡張子を除く画像ファイル名, image_paths(の拡張子除くファイル名)がすべてここに含まれること
+            value: 表示名
+
+    Returns:
+        list[np.ndarray]: image_namesに記載の順序でソートされたimages
+        list[str]: 対応する表示名
+    """
     assert len(images) == len(image_paths)
     image_bases = [os.path.basename(os.path.splitext(x)[0]) for x in image_paths]
 
