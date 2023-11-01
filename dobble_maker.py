@@ -197,7 +197,7 @@ def load_images(
 
     Returns:
         list[np.ndarray]: 読み込んだnum個の画像のリスト
-        list[str]]: 各画像のファイルパス
+        list[str]: 各画像のファイルパス
     """
     # 画像ファイル一覧を取得
     files: list[str] = [fname for e in ext for fname in glob.glob(f"{dir_name}/*.{e}")]
@@ -1277,7 +1277,7 @@ def main():
     page_size_mm = (210, 297)  # PDFの(幅, 高さ)[mm]
     # 画像リストの設定
     image_list_path: None | str = r"samples\画像リスト.xlsx"  # xlsx | csv のパス
-    image_table_size: tuple[int, int] = (n_symbols_per_card + 3, n_symbols_per_card + 1)  # 画像リストの表サイズ (行数, 列数)
+    image_table_size: tuple[int, int] = (8, 6)  # 画像リストの表サイズ (行数, 列数)
 
     # その他
     shuffle: bool = False  # True: 画像読み込みをシャッフルする
