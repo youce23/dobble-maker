@@ -1023,16 +1023,23 @@ def make_image_of_thumbnails_with_names(
     assert len(images) == len(names)
     assert 0.0 <= thumb_margin < 0.5
 
+    # 円の場合、端にはシンボルを描画できないので少し小さめのサイズを描画範囲とする
+    table_scale = 0.98 if is_circle else 1.0
+    table_x0 = margin + width * (1 - table_scale) / 2
+    table_y0 = margin + height * (1 - table_scale) / 2
+
     # テーブルのセルサイズを計算
-    cell_w = (width - 2 * margin) // table_size[1]
-    cell_h = (height - 2 * margin) // table_size[0]
+    cell_w = table_scale * (width - 2 * margin) / table_size[1]
+    cell_h = table_scale * (height - 2 * margin) / table_size[0]
 
     # サムネイルのサイズを計算
-    thumb_w = int(np.floor((width - 2 * margin) / table_size[1] * (1 - 2 * thumb_margin)))
-    thumb_h = int(np.floor((height - 2 * margin) / table_size[0] * (1 - 2 * thumb_margin)))
+    _thumb_w = cell_w - 2 * thumb_margin * cell_w
+    _thumb_h = cell_h - 2 * thumb_margin * cell_h
 
-    margin_thumb_w = (cell_w - thumb_w) // 2
-    margin_thumb_h = (cell_h - thumb_h) // 2
+    margin_thumb_w = (cell_w - _thumb_w) / 2
+    margin_thumb_h = (cell_h - _thumb_h) / 2
+    thumb_w = int(_thumb_w)
+    thumb_h = int(_thumb_h)
 
     # 各画像 + テキストをレンダリングした画像を生成
     thumbs: list[np.ndarray] = []
@@ -1053,11 +1060,13 @@ def make_image_of_thumbnails_with_names(
                 canvas, canvas_ov = _make_canvas(is_circle, width, height, margin)
             # 描画位置に入るか確認
             try_canv_ov = np.copy(canvas_ov)
-            x0 = margin + pos_x * cell_w
-            y0 = margin + pos_y * cell_h
+            x0 = table_x0 + pos_x * cell_w
+            y0 = table_y0 + pos_y * cell_h
+            x0_m = int(x0 + margin_thumb_w)
+            y0_m = int(y0 + margin_thumb_h)
             try_canv_ov[
-                (y0 + margin_thumb_h) : (y0 + margin_thumb_h + thumb_h),
-                (x0 + margin_thumb_w) : (x0 + margin_thumb_w + thumb_w),
+                y0_m : (y0_m + thumb_h),
+                x0_m : (x0_m + thumb_w),
             ] += OVERLAP_VAL
 
             if show:
@@ -1066,13 +1075,14 @@ def make_image_of_thumbnails_with_names(
                 cv2.imshow("try", try_canv_ov)
                 cv2.waitKey(show_wait_ms)
 
-            # 丸め誤差の影響でカードの上/左端と下/右端で1列分ずれてサムネイルの描画が対象にならない場合があるため、その分だけ重なりを許容
-            if (try_canv_ov > OVERLAP_VAL).sum() <= max(thumb_w, thumb_h):
+            # 端がギリギリで入りにくいので、適当に重なりを許容
+            n_ov_pixs = (try_canv_ov > OVERLAP_VAL).sum() - (canvas_ov > OVERLAP_VAL).sum()
+            if n_ov_pixs <= max(thumb_w, thumb_h):
                 # 描画可能なので描画
                 canvas_ov = try_canv_ov
                 canvas[
-                    (y0 + margin_thumb_h) : (y0 + margin_thumb_h + thumb_h),
-                    (x0 + margin_thumb_w) : (x0 + margin_thumb_w + thumb_w),
+                    y0_m : (y0_m + thumb_h),
+                    x0_m : (x0_m + thumb_w),
                     :,
                 ] = thumb_img
                 ok = True
