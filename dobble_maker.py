@@ -1,3 +1,4 @@
+import csv
 import glob
 import math
 import os
@@ -5,10 +6,12 @@ import random
 import tempfile
 from typing import Literal
 
+import chardet
 import cv2
 import galois
 import img2pdf
 import numpy as np
+import openpyxl
 import pypdf
 import tqdm
 from PIL import Image, ImageDraw, ImageFont
@@ -985,9 +988,7 @@ def _draw_name_in_thumb(
 
 
 def make_image_of_thumbnails_with_names(
-    is_circle: bool,
-    width: int,
-    height: int,
+    card_size: int | tuple[int, int],
     margin: int,
     table_size: tuple[int, int],
     images: list[np.ndarray],
@@ -1019,6 +1020,14 @@ def make_image_of_thumbnails_with_names(
         list[np.ndarray]:
             サムネイルを並べたカード画像のリスト
     """
+    if isinstance(card_size, int):
+        is_circle = True
+        width = height = card_size
+    else:
+        assert isinstance(card_size, tuple) and len(card_size) == 2
+        is_circle = False
+        width, height = card_size
+
     assert not is_circle or (is_circle and width == height)
     assert len(images) == len(names)
     assert 0.0 <= thumb_margin < 0.5
@@ -1044,7 +1053,7 @@ def make_image_of_thumbnails_with_names(
     # 各画像 + テキストをレンダリングした画像を生成
     thumbs: list[np.ndarray] = []
     for symbl_img, symbl_name in zip(images, names):
-        thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=0.2)
+        thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=0.25)
         thumbs.append(thumb)
 
     # 各画像をカードにテーブル形式で描画
@@ -1137,6 +1146,82 @@ def make_image_of_thumbnails_with_names(
     return cards
 
 
+def detect_encoding(file_path: str) -> str:
+    with open(file_path, "rb") as f:
+        data = f.read()
+
+    return chardet.detect(data)["encoding"]
+
+
+def load_image_list(image_list_path: str) -> dict[str, str]:
+    # 画像リストの読み込み
+    # "ファイル名"列: 拡張子を除くファイル名
+    # "名前"列: カードに描画する
+
+    data_list: dict[str, str] = dict()  # key: "ファイル名", value: "名前", を持つdict
+
+    ext = os.path.splitext(image_list_path)[1]
+    if ext == ".xlsx":
+        # xlsx読み込み
+        wb = openpyxl.load_workbook(image_list_path, read_only=True)
+        sheet = wb.active
+        # "ファイル名"と"名前"の列のインデックスを取得
+        file_name_index = None
+        name_index = None
+
+        for col, header in enumerate(sheet[1], 1):
+            if header.value == "ファイル名":
+                file_name_index = col
+            elif header.value == "名前":
+                name_index = col
+
+        # データを取得
+        for row in sheet.iter_rows(values_only=True, min_row=2):  # 先頭行は除く
+            if file_name_index is not None and name_index is not None:
+                data_list[row[file_name_index - 1]] = row[name_index - 1]
+
+        wb.close()
+    elif ext == ".csv":
+        # 文字コード判定
+        encoding = detect_encoding(image_list_path)
+        with open(image_list_path, newline="", encoding=encoding) as csvfile:
+            reader = csv.DictReader(csvfile)
+
+            for row in reader:
+                file_name = row.get("ファイル名")
+                name = row.get("名前")
+
+                if file_name and name:
+                    data_list[file_name] = name
+    else:
+        raise NotImplementedError(f"拡張子 {ext} は未対応")
+
+    return data_list
+
+
+def sort_images_by_image_list(images: list[np.ndarray], image_paths: list[str], image_names: dict[str, str]):
+    assert len(images) == len(image_paths)
+    image_bases = [os.path.basename(os.path.splitext(x)[0]) for x in image_paths]
+
+    # 使用された画像ファイルがすべて画像名リストに記載されているかチェック
+    for img_base in image_bases:
+        if img_base not in image_names.keys():
+            raise ValueError(f"{img_base} が画像リストの'ファイル名'列に存在しない")
+
+    # images, image_pathsをimage_namesに記載の順序で並び替え
+    sorted_images: list[np.ndarray] = list()
+    sorted_names: list[str] = list()
+    for base, name in image_names.items():
+        if base in image_bases:
+            p = image_bases.index(base)
+            sorted_images.append(images[p].copy())
+            sorted_names.append(name)
+
+    assert len(sorted_images) == len(sorted_names) == len(images) == len(image_paths)
+
+    return sorted_images, sorted_names
+
+
 def main():
     # ============
     # パラメータ設定
@@ -1156,6 +1241,9 @@ def main():
     dpi = 300  # 解像度
     card_size_mm = 95  # カードの長辺サイズ[mm]
     page_size_mm = (210, 297)  # PDFの(幅, 高さ)[mm]
+    # 画像リストの設定
+    image_list_path: None | str = r"samples\画像リスト.xlsx"  # xlsx | csv のパス
+    image_table_size: tuple[int, int] = (n_symbols_per_card + 3, n_symbols_per_card + 1)  # 画像リストの表サイズ (行数, 列数)
 
     # その他
     shuffle: bool = False  # True: 画像読み込みをシャッフルする
@@ -1180,11 +1268,12 @@ def main():
     pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
 
     # image_dirからn_symbols数の画像を取得
-    images, _ = load_images(image_dir, n_symbols, shuffle=shuffle)
+    images, image_paths = load_images(image_dir, n_symbols, shuffle=shuffle)
 
-    # len(pairs)枚のカード画像を作成し、保存
+    # 出力フォルダ作成
     os.makedirs(output_dir, exist_ok=True)
 
+    # len(pairs)枚のカード画像を作成し、保存
     card_images = []
     for i, image_indexes in enumerate(tqdm.tqdm(pairs, desc="layout images")):
         path = output_dir + os.sep + f"{i}.png"
@@ -1206,6 +1295,24 @@ def main():
             assert card_img is not None  # 必ず読み込める前提
 
         card_images.append(card_img)
+
+    # 画像リストファイルの指定があれば画像リストカード画像を作成
+    image_names = load_image_list(image_list_path)
+    sorted_images, sorted_names = sort_images_by_image_list(
+        images, image_paths, image_names
+    )  # image_namesの順序でimage_pathsをソート
+    thumbs_cards = make_image_of_thumbnails_with_names(
+        card_img_size,
+        card_margin,
+        image_table_size,
+        sorted_images,
+        sorted_names,
+        draw_frame=True,
+    )  # 画像をサムネイル化したカード画像を作成
+    for i, card in enumerate(thumbs_cards):
+        path = output_dir + os.sep + f"thumbnail_{i}.png"
+        cv2.imwrite(path, card)
+        card_images.append(card)
 
     # 各画像をA4 300 DPIに配置しPDF化
     images_to_pdf(
