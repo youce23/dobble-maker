@@ -11,8 +11,13 @@ import img2pdf
 import numpy as np
 import pypdf
 import tqdm
+from PIL import Image, ImageDraw, ImageFont
 
 from voronoi import cvt
+
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+OVERLAP_VAL = 127
 
 
 def is_prime(n: int) -> bool:
@@ -168,7 +173,12 @@ def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
 
 
 def load_images(
-    dir_name: str, num: int, *, ext: list[str] = ["jpg", "png"], shuffle: bool = False
+    dir_name: str,
+    num: int,
+    *,
+    ext: list[str] = ["jpg", "png"],
+    shuffle: bool = False,
+    trim_margin: bool = True,
 ) -> tuple[list[np.ndarray], list[str]]:
     """所定数の画像を読み込む
 
@@ -180,6 +190,7 @@ def load_images(
         num (int): 読み込む画像数
         ext (list[str], optional): 読み込み対象画像の拡張子. Defaults to ["jpg", "png"].
         shuffle (bool, optional): Trueなら画像ファイル一覧をシャッフルする. Defaults to False.
+        trim_margin (bool, optional): Trueなら画像の余白を除去する
 
     Returns:
         list[np.ndarray]: 読み込んだnum個の画像のリスト
@@ -209,7 +220,6 @@ def load_images(
     images: list[np.ndarray] = []
     image_paths: list[str] = []
 
-    WHITE = (255, 255, 255)
     for path, _ in files:
         img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
@@ -226,6 +236,9 @@ def load_images(
             pass
         else:
             raise IOError(f"{path} のチャネル数({n_ch})はサポート対象外")
+
+        if trim_margin:
+            img = _trim_bb_image(img)
         images.append(img)
         image_paths.append(path)
 
@@ -281,10 +294,6 @@ def rotate_fit(
 
 def _make_canvas(is_circle: bool, width: int, height: int, margin: int) -> tuple[np.ndarray, np.ndarray]:
     """空のキャンバスを作成"""
-    BLACK = (0, 0, 0)
-    WHITE = (255, 255, 255)
-    OVERLAP_VAL = 127
-
     if is_circle:
         # 描画キャンバス
         canvas = np.full((height, width, 3), WHITE, dtype=np.uint8)
@@ -306,6 +315,10 @@ def _make_canvas(is_circle: bool, width: int, height: int, margin: int) -> tuple
     return canvas, canv_ol
 
 
+def _get_interpolation(scale: float, *, downsize=cv2.INTER_AREA, upsize=cv2.INTER_CUBIC):
+    return downsize if scale < 1 else upsize
+
+
 def _layout_random(
     is_circle: bool, width: int, height: int, margin: int, images: list[np.ndarray], show: bool
 ) -> np.ndarray:
@@ -323,22 +336,18 @@ def _layout_random(
     n_img_in_card = len(images)
     img_base_size = int(np.ceil(max(height, width) / np.ceil(np.sqrt(n_img_in_card))))
 
-    WHITE = (255, 255, 255)
-    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
-
     while True:
         # マスク画像に描画するパラメータ
         # キャンバスの作成
         canvas, canv_ol = _make_canvas(is_circle, width, height, margin)
         for img in images:
             # 元画像の余白を除去して外接矩形でトリミング
-            im_trim = _trim_bb_image(img)
-            im_bin_trim = np.full((im_trim.shape[0], im_trim.shape[1]), OVERLAP_VAL, dtype=np.uint8)
+            im_bin = np.full((img.shape[0], img.shape[1]), OVERLAP_VAL, dtype=np.uint8)
 
             # 長辺を基本サイズに拡縮
-            scale = img_base_size / max(im_trim.shape[0], im_trim.shape[1])
-            im_base = cv2.resize(im_trim, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-            im_bin_base = cv2.resize(im_bin_trim, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+            scale = img_base_size / max(img.shape[0], img.shape[1])
+            im_base = cv2.resize(img, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
+            im_bin_base = cv2.resize(im_bin, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
 
             # ランダムにリサイズ、回転、配置し、重複するならパラメータを変えて最大n_max回やり直し
             # (n_max回試してもダメなら最初からやり直し)
@@ -351,7 +360,7 @@ def _layout_random(
                 _canv_ol = cur_canv_ol.copy()
                 # ランダムにリサイズ
                 scale = random.uniform(0.5, 0.8)  # NOTE: 小さめの方が敷き詰めるのに時間がかからないが余白が増えるので適宜調整
-                _im_scl = cv2.resize(im_base, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+                _im_scl = cv2.resize(im_base, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
                 _im_bin_scl = cv2.resize(im_bin_base, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
 
                 # ランダムに回転
@@ -403,7 +412,6 @@ def _trim_bb_image(image: np.ndarray) -> np.ndarray:
     assert image.shape[2] == 3  # 3チャネルのカラー画像とする
 
     thr = 5  # 二値化の閾値
-    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
 
     im_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, im_bin = cv2.threshold(im_gray, 255 - thr, OVERLAP_VAL, cv2.THRESH_BINARY_INV)
@@ -427,6 +435,34 @@ def _rotate_2d(pt: tuple[float, float], degree: float, *, org: tuple[float, floa
     rot_y = x * math.sin(rad) + y * math.cos(rad)
 
     return (rot_x + org[0], rot_y + org[1])
+
+
+def _make_drawing_region_in_card(is_circle: bool, width: int, height: int, margin: int) -> list[tuple[float, float]]:
+    """カード内の描画範囲を取得
+
+    Args:
+        is_circle (bool): True なら 円, False なら 長方形
+        width (int): カードの幅
+        height (int): カードの高さ (円なら無視)
+        margin (int): カード外縁の余白
+
+    Returns:
+        list[tulpe[float, float]]: 描画範囲を凸包表現した際の座標リスト
+    """
+    if is_circle:
+        c = width / 2
+        r = width / 2 - margin
+        bnd_pts = [(c + r * np.cos(x / 180.0 * np.pi), c + r * np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
+    else:
+        bnd_pts = [
+            (margin, margin),
+            (width - margin, margin),
+            (width - margin, height - margin),
+            (margin, height - margin),
+        ]
+        bnd_pts = [(float(x), float(y)) for x, y in bnd_pts]  # cast
+
+    return bnd_pts
 
 
 def _layout_voronoi(
@@ -454,21 +490,8 @@ def _layout_voronoi(
     """
     assert not is_circle or (is_circle and width == height)
 
-    WHITE = (255, 255, 255)
-    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
-
     # 各カードの配置位置と範囲を計算 (x, yで計算)
-    if is_circle:
-        c = width / 2
-        r = width / 2 - margin
-        bnd_pts = [(c + r * np.cos(x / 180.0 * np.pi), c + r * np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
-    else:
-        bnd_pts = [
-            (margin, margin),
-            (width - margin, margin),
-            (width - margin, height - margin),
-            (margin, height - margin),
-        ]
+    bnd_pts = _make_drawing_region_in_card(is_circle, width, height, margin)
 
     # 重心ボロノイ分割で各画像の中心位置と範囲を取得
     # (範囲は目安であり変わっても良い)
@@ -531,7 +554,7 @@ def _layout_voronoi(
                 # 画像貼り付け位置にマスクを描画
                 mask_img = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
                 _pts = np.array([lt, rt, lb, rb], dtype=int)
-                cv2.fillConvexPoly(mask_img, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
+                cv2.fillConvexPoly(mask_img, _pts, OVERLAP_VAL, lineType=cv2.LINE_4)
 
                 # ボロノイ境界を超えない制約をつけるために境界線を描画
                 # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
@@ -559,7 +582,7 @@ def _layout_voronoi(
                     _pts = np.array([lt, rt, lb, rb], dtype=int)
                     cv2.fillConvexPoly(im_mask, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
 
-                    _im_scl = cv2.resize(im_trim, None, fx=scl_r, fy=scl_r, interpolation=cv2.INTER_CUBIC)
+                    _im_scl = cv2.resize(im_trim, None, fx=scl_r, fy=scl_r, interpolation=_get_interpolation(scl_r))
                     _im_rot = rotate_fit(_im_scl, -(deg + init_deg), flags=cv2.INTER_CUBIC, borderValue=WHITE)
                     dx = pos[0] - _im_rot.shape[1] / 2
                     dy = pos[1] - _im_rot.shape[0] / 2
@@ -712,7 +735,7 @@ def images_to_pdf(
         card_h = card.shape[0]
         card_w = card.shape[1]
         scale = resize_card_long / max(card_h, card_w)
-        resize_card = cv2.resize(card, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        resize_card = cv2.resize(card, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
 
         resize_h = resize_card.shape[0]
         resize_w = resize_card.shape[1]
@@ -761,6 +784,347 @@ def images_to_pdf(
     merge_pdf(pdfs, pdf_path)
 
     return
+
+
+def cv2_putText(
+    img: np.ndarray,
+    text: str,
+    org: tuple[int, int],
+    font: str | tuple[str, int],
+    font_scale: None | int,
+    color: str | tuple,
+    anchor: str,
+    *,
+    text_w: None | int = None,
+    text_h: None | int = None,
+    align: Literal["left", "center", "right"] = "left",
+    stroke_width: int = 0,
+    stroke_fill: None | tuple = None,
+):
+    """日本語テキストの描画
+
+    参考:
+        OpenCVで日本語フォントを描画する を関数化する を最新にする,
+        https://qiita.com/mo256man/items/f07bffcf1cfedf0e42e0
+
+    Args:
+        img: 対象画像 (上書きされる)
+        text: 描画テキスト
+        org: 描画位置 (x, y), 意味はanchorにより変わる
+        font:
+            str: フォントファイルパス (*.ttf | *.ttc)
+            int:
+                フォントファイルがttcの場合は複数フォントを含む。
+                その中で使用するフォントのインデックスを指定する。
+                フォント名は以下で確認が可能
+                    ImageFont.truetype(font=ttcファイルパス, index=インデックス).getname()
+        font_scale:
+            フォントサイズ,
+            Noneの場合はtext_wあるいはtext_hの指定が必須
+        color: 描画色
+        anchor (str):
+            2文字で指定する, 1文字目はx座標について, 2文字目はy座標について以下のルールで指定する
+            1文字目: "l", "m", "r" のいずれかを指定. それぞれテキストボックスの 左端, 中心, 右端 を意味する
+            2文字目: "t", "m", "b" のいずれかを指定. それぞれテキストボックスの 上端, 中心, 下端 を意味する
+        text_w:
+            描画するテキスト幅 [pix]
+            このサイズ以下になるギリギリのサイズで描画する
+            (font_scaleがNoneの場合のみ有効)
+        text_h:
+            描画するテキスト高さ [pix]
+            このサイズ以下になるギリギリのサイズで描画する
+            (font_scaleがNoneの場合のみ有効)
+        max_text_h:
+        align:
+            text に複数行(改行文字"\n"を含む文字列)を指定した場合の描画方法
+            "left": 左揃え (default)
+            "center": 中央揃え
+            "right": 右揃え
+        stroke_width: 文字枠の太さ
+        stroke_fill: 文字枠の色
+    """
+    assert len(anchor) == 2
+
+    if isinstance(font, str):
+        font_face = font
+        index = 0
+    else:
+        font_face, index = font
+
+    # テキスト描画域を取得
+    x, y = org
+    if font_scale is not None:
+        fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
+        dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
+        xL, yT, xR, yB = dummy_draw.multiline_textbbox(
+            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width
+        )
+    else:
+        assert type(text_w) is int or type(text_h) is int
+        font_scale = 1
+        while True:
+            fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
+            dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
+            xL, yT, xR, yB = dummy_draw.multiline_textbbox(
+                (0, 0), text, font=fontPIL, align=align, stroke_width=stroke_width
+            )
+            bb_w = xR - xL
+            bb_h = yB - yT
+            if type(text_w) is int and bb_w > text_w:
+                break
+            elif type(text_h) is int and bb_h > text_h:
+                break
+            font_scale += 1
+        font_scale -= 1
+        if font_scale < 1:
+            raise ValueError("指定のサイズでは描画できない")
+        fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
+        dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
+        xL, yT, xR, yB = dummy_draw.multiline_textbbox(
+            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width
+        )
+
+    # 少なくともalignを"center"にした場合にxL, xRがfloatになることがあったため、intにキャスト
+    xL, yT, xR, yB = int(np.floor(xL)), int(np.floor(yT)), int(np.ceil(xR)), int(np.ceil(yB))
+
+    # anchorによる座標の変換
+    img_h, img_w = img.shape[:2]
+    if anchor[0] == "l":
+        offset_x = xL - x
+    elif anchor[0] == "m":
+        offset_x = (xR + xL) // 2 - x
+    elif anchor[0] == "r":
+        offset_x = xR - x
+    else:
+        raise NotImplementedError
+
+    if anchor[1] == "t":
+        offset_y = yT - y
+    elif anchor[1] == "m":
+        offset_y = (yB + yT) // 2 - y
+    elif anchor[1] == "b":
+        offset_y = yB - y
+    else:
+        raise NotImplementedError
+
+    x0, y0 = x - offset_x, y - offset_y
+    xL, yT = xL - offset_x, yT - offset_y
+    xR, yB = xR - offset_x, yB - offset_y
+
+    # 画面外なら何もしない
+    if xR <= 0 or xL >= img_w or yB <= 0 or yT >= img_h:
+        print("out of bounds")
+        return img
+
+    # ROIを取得する
+    x1, y1 = max([xL, 0]), max([yT, 0])
+    x2, y2 = min([xR, img_w]), min([yB, img_h])
+    roi = img[y1:y2, x1:x2]
+
+    # ROIをPIL化してテキスト描画しCV2に戻る
+    roiPIL = Image.fromarray(roi)
+    draw = ImageDraw.Draw(roiPIL)
+    draw.text((x0 - x1, y0 - y1), text, color, fontPIL, align=align, stroke_width=stroke_width, stroke_fill=stroke_fill)
+    roi = np.array(roiPIL, dtype=np.uint8)
+    img[y1:y2, x1:x2] = roi
+
+
+def _draw_name_in_thumb(
+    img: np.ndarray,
+    thumb_w: int,
+    thumb_h: int,
+    name: str,
+    *,
+    text_h_rate: float = 1.0,
+) -> np.ndarray:
+    """画像＋テキストをサムネイル化
+
+    Args:
+        img (np.ndarray):
+            入力画像, 3チャネルのBGR画像であること
+        thumb_w (int):
+            サムネイル幅 (テキストを含む)
+        thumb_h (int):
+            サムネイル高さ (テキストを含む)
+        name (str):
+            描画テキスト
+        text_h_rate:
+            thumb_h に対する描画テキストの最大高さの割合
+
+    Returns:
+        np.ndarray: サムネイル + 直下にテキストをレンダリングした画像
+    """
+    assert img.shape[2] == 3
+
+    font = (os.environ["windir"] + r"\fonts\uddigikyokashon-b.ttc", 2)
+
+    img_w, img_h = img.shape[1], img.shape[0]
+    scale = min(thumb_w, thumb_h) / max(img_w, img_h)  # サムネイルの短辺に画像の長辺が収まるように縮小しないといけない
+
+    canv = np.ones((thumb_h, thumb_w, 3), dtype=img.dtype) * 255
+    resized = cv2.resize(img, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
+    x0 = (canv.shape[1] - resized.shape[1]) // 2
+    y0 = (canv.shape[0] - resized.shape[0]) // 2
+    canv[y0 : (y0 + resized.shape[0]), x0 : (x0 + resized.shape[1]), :] = resized
+    cv2_putText(
+        canv,
+        name,
+        (canv.shape[1] // 2, canv.shape[0]),
+        font,
+        None,
+        (0, 0, 0),
+        "mb",
+        align="center",
+        stroke_width=3,
+        stroke_fill=(255, 255, 255),
+        text_w=canv.shape[1],
+        text_h=int(np.floor(canv.shape[0] * text_h_rate)),
+    )
+
+    return canv
+
+
+def make_image_of_thumbnails_with_names(
+    is_circle: bool,
+    width: int,
+    height: int,
+    margin: int,
+    table_size: tuple[int, int],
+    images: list[np.ndarray],
+    names: list[str],
+    *,
+    thumb_margin: float = 0.05,
+    draw_frame: bool = False,
+    show: bool = False,
+    show_wait_ms: int = 0,
+) -> list[np.ndarray]:
+    """シンボル画像のサムネイルと名前を一覧するカード画像を作成
+
+    Args:
+        is_circle (bool): 出力画像が円形か否か
+        width (int): 出力画像の幅
+        height (int): 出力画像の高さ (is_circleならwidthと同じであること)
+        margin (int): 出力画像の外縁につける余白サイズ
+        table_size (tuple[int, int]): サムネイルを表形式で並べる際の表の(行数, 列数)
+        images (list[np.ndarray]): 配置画像ソース
+        names (list[str]): images毎の表示名
+        thumb_margin (float):
+            出力画像の描画領域を表サイズで分割した領域(セル)において、
+            さらにサムネイルの周囲につける余白のセルサイズに対する割合 (0以上0.5未満)
+        draw_frame (bool): 印刷を想定した枠を描画するならTrue
+        show (bool): 計算中の画像を画面表示するならTrue
+        show_wait_ms (int): show is True 時に表示するウィンドウの待ち時間, 0ならキー入力
+
+    Returns:
+        list[np.ndarray]:
+            サムネイルを並べたカード画像のリスト
+    """
+    assert not is_circle or (is_circle and width == height)
+    assert len(images) == len(names)
+    assert 0.0 <= thumb_margin < 0.5
+
+    # テーブルのセルサイズを計算
+    cell_w = (width - 2 * margin) // table_size[1]
+    cell_h = (height - 2 * margin) // table_size[0]
+
+    # サムネイルのサイズを計算
+    thumb_w = int(np.floor((width - 2 * margin) / table_size[1] * (1 - 2 * thumb_margin)))
+    thumb_h = int(np.floor((height - 2 * margin) / table_size[0] * (1 - 2 * thumb_margin)))
+
+    margin_thumb_w = (cell_w - thumb_w) // 2
+    margin_thumb_h = (cell_h - thumb_h) // 2
+
+    # 各画像 + テキストをレンダリングした画像を生成
+    thumbs: list[np.ndarray] = []
+    for symbl_img, symbl_name in zip(images, names):
+        thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=0.2)
+        thumbs.append(thumb)
+
+    # 各画像をカードにテーブル形式で描画
+    cards: list[np.ndarray] = []
+
+    canvas = None
+    pos_x = pos_y = 0  # 描画位置
+    cnt_img_in_card = 0  # カードに描画された画像数 (エラーチェック用に使う)
+    for thumb_img in thumbs:
+        ok = False
+        while not ok:
+            if canvas is None:
+                canvas, canvas_ov = _make_canvas(is_circle, width, height, margin)
+            # 描画位置に入るか確認
+            try_canv_ov = np.copy(canvas_ov)
+            x0 = margin + pos_x * cell_w
+            y0 = margin + pos_y * cell_h
+            try_canv_ov[
+                (y0 + margin_thumb_h) : (y0 + margin_thumb_h + thumb_h),
+                (x0 + margin_thumb_w) : (x0 + margin_thumb_w + thumb_w),
+            ] += OVERLAP_VAL
+
+            if show:
+                cv2.imshow("canvas", canvas)
+                cv2.imshow("canvas_ov", canvas_ov)
+                cv2.imshow("try", try_canv_ov)
+                cv2.waitKey(show_wait_ms)
+
+            # 丸め誤差の影響でカードの上/左端と下/右端で1列分ずれてサムネイルの描画が対象にならない場合があるため、その分だけ重なりを許容
+            if (try_canv_ov > OVERLAP_VAL).sum() <= max(thumb_w, thumb_h):
+                # 描画可能なので描画
+                canvas_ov = try_canv_ov
+                canvas[
+                    (y0 + margin_thumb_h) : (y0 + margin_thumb_h + thumb_h),
+                    (x0 + margin_thumb_w) : (x0 + margin_thumb_w + thumb_w),
+                    :,
+                ] = thumb_img
+                ok = True
+                cnt_img_in_card += 1
+
+                if show:
+                    cv2.imshow("canvas", canvas)
+                    cv2.waitKey(show_wait_ms)
+
+            # 描画できてもできなくても次の位置へ
+            pos_x += 1
+            if pos_x >= table_size[1]:
+                pos_x = 0
+                pos_y += 1
+            if pos_y >= table_size[0]:
+                # このカードがいっぱいだったら、カードを出力してから次の画像へ
+                if cnt_img_in_card == 0:
+                    # 1個も描画できないまま次の画像へ行ってしまったら、テーブルサイズの設定ミスなので例外送出
+                    raise ValueError("カードにサムネイルが描画できないのでテーブルサイズの調整が必要")
+                canvas = np.where(canvas_ov[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
+                cards.append(canvas)
+                canvas = None
+                cnt_img_in_card = 0
+                pos_x = 0
+                pos_y = 0
+
+    if cnt_img_in_card > 0:
+        # 未出力のカード画像を処理
+        assert canvas is not None
+        canvas = np.where(canvas_ov[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
+        cards.append(canvas)
+
+    # 枠線を描画
+    if draw_frame:
+        gray = (127, 127, 127)
+        if is_circle:
+            center = (int(height / 2), int(width / 2))
+            radius = int(width / 2)
+            for card in cards:
+                cv2.circle(card, center, radius, gray, thickness=1)
+        else:
+            for card in cards:
+                cv2.rectangle(card, (0, 0), (width - 1, height - 1), gray, thickness=1)
+
+    if show:
+        for i, card in enumerate(cards):
+            cv2.imshow(f"#{i}", card)
+        cv2.waitKey(show_wait_ms)
+
+        cv2.destroyAllWindows()
+
+    return cards
 
 
 def main():
