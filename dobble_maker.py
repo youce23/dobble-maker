@@ -1182,7 +1182,7 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
     ext = os.path.splitext(image_list_path)[1]
     if ext == ".xlsx":
         # xlsx読み込み
-        wb = openpyxl.load_workbook(image_list_path, read_only=True)
+        wb = openpyxl.load_workbook(image_list_path, read_only=True, data_only=True)
         sheet = wb.active
         # "ファイル名"と"名前"の列のインデックスを取得
         file_name_index = None
