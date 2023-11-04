@@ -858,13 +858,16 @@ def cv2_putText(
     else:
         font_face, index = font
 
+    # デフォルトの行間は広いので調整
+    spacing = 0.0
+
     # テキスト描画域を取得
     x, y = org
     if font_scale is not None:
         fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
         dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
         xL, yT, xR, yB = dummy_draw.multiline_textbbox(
-            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width
+            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
         )
     else:
         assert type(text_w) is int or type(text_h) is int
@@ -873,7 +876,7 @@ def cv2_putText(
             fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
             dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
             xL, yT, xR, yB = dummy_draw.multiline_textbbox(
-                (0, 0), text, font=fontPIL, align=align, stroke_width=stroke_width
+                (0, 0), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
             )
             bb_w = xR - xL
             bb_h = yB - yT
@@ -888,7 +891,7 @@ def cv2_putText(
         fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
         dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
         xL, yT, xR, yB = dummy_draw.multiline_textbbox(
-            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width
+            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
         )
 
     # 少なくともalignを"center"にした場合にxL, xRがfloatになることがあったため、intにキャスト
@@ -931,7 +934,16 @@ def cv2_putText(
     # ROIをPIL化してテキスト描画しCV2に戻る
     roiPIL = Image.fromarray(roi)
     draw = ImageDraw.Draw(roiPIL)
-    draw.text((x0 - x1, y0 - y1), text, color, fontPIL, align=align, stroke_width=stroke_width, stroke_fill=stroke_fill)
+    draw.text(
+        (x0 - x1, y0 - y1),
+        text,
+        color,
+        fontPIL,
+        align=align,
+        stroke_width=stroke_width,
+        stroke_fill=stroke_fill,
+        spacing=spacing,
+    )
     roi = np.array(roiPIL, dtype=np.uint8)
     img[y1:y2, x1:x2] = roi
 
@@ -999,6 +1011,7 @@ def make_image_of_thumbnails_with_names(
     names: list[str],
     *,
     thumb_margin: float = 0.05,
+    text_h_rate: float = 0.25,
     draw_frame: bool = False,
     show: bool = False,
     show_wait_ms: int = 0,
@@ -1016,6 +1029,8 @@ def make_image_of_thumbnails_with_names(
         thumb_margin (float):
             出力画像の描画領域を表サイズで分割した領域(セル)において、
             さらにサムネイルの周囲につける余白のセルサイズに対する割合 (0以上0.5未満)
+        text_h_rate (float):
+            サムネイルの高さに対する描画テキストの最大高さの割合
         draw_frame (bool): 印刷を想定した枠を描画するならTrue
         show (bool): 計算中の画像を画面表示するならTrue
         show_wait_ms (int): show is True 時に表示するウィンドウの待ち時間, 0ならキー入力
@@ -1057,7 +1072,7 @@ def make_image_of_thumbnails_with_names(
     # 各画像 + テキストをレンダリングした画像を生成
     thumbs: list[np.ndarray] = []
     for symbl_img, symbl_name in zip(images, names):
-        thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=0.25)
+        thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=text_h_rate)
         thumbs.append(thumb)
 
     # 各画像をカードにテーブル形式で描画
@@ -1166,7 +1181,7 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
             画像リストファイルパス (.xlsx|.csv)
             * "ファイル名"列, 及び"名前"列を持つこと（列名は先頭行）
             * "ファイル名": 拡張子を除く画像ファイル名
-            * "名前": カードに描画する表示名
+            * "名前": カードに描画する表示名, テキストで「\n」と記載がある場合は改行文字に変換する
 
     Returns:
         dict[str, str]:
@@ -1214,6 +1229,9 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
                     data_list[file_name] = name
     else:
         raise NotImplementedError(f"拡張子 {ext} は未対応")
+
+    # "名前"列の改行文字変換
+    data_list = {key: val.replace("\\n", "\n") for key, val in data_list.items()}
 
     return data_list
 
@@ -1278,6 +1296,8 @@ def main():
     # 画像リストの設定
     image_list_path: None | str = r"samples\画像リスト.xlsx"  # xlsx | csv のパス
     image_table_size: tuple[int, int] = (8, 6)  # 画像リストの表サイズ (行数, 列数)
+    thumb_margin: float = 0.055  # サムネイル周囲の余白調整 (0.0-0.5, 主にカード端に画像が入らない場合の微調整用)
+    text_h_rate: float = 0.3  # サムネイル高さに対する上限文字高さの割合
 
     # その他
     shuffle: bool = False  # True: 画像読み込みをシャッフルする
@@ -1341,6 +1361,8 @@ def main():
         image_table_size,
         sorted_images,
         sorted_names,
+        thumb_margin=thumb_margin,
+        text_h_rate=text_h_rate,
         draw_frame=True,
     )  # 画像をサムネイル化したカード画像を作成
     for i, card in enumerate(thumbs_cards):
