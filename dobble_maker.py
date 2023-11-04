@@ -1351,24 +1351,25 @@ def main():
         card_images.append(card_img)
 
     # 画像リストファイルの指定があれば画像リストカード画像を作成
-    image_names = load_image_list(image_list_path)
-    sorted_images, sorted_names = sort_images_by_image_list(
-        images, image_paths, image_names
-    )  # image_namesの順序でimage_pathsをソート
-    thumbs_cards = make_image_of_thumbnails_with_names(
-        card_img_size,
-        card_margin,
-        image_table_size,
-        sorted_images,
-        sorted_names,
-        thumb_margin=thumb_margin,
-        text_h_rate=text_h_rate,
-        draw_frame=True,
-    )  # 画像をサムネイル化したカード画像を作成
-    for i, card in enumerate(thumbs_cards):
-        path = output_dir + os.sep + f"thumbnail_{i}.png"
-        cv2.imwrite(path, card)
-        card_images.append(card)
+    if image_list_path is not None:
+        image_names = load_image_list(image_list_path)
+        sorted_images, sorted_names = sort_images_by_image_list(
+            images, image_paths, image_names
+        )  # image_namesの順序でimage_pathsをソート
+        thumbs_cards = make_image_of_thumbnails_with_names(
+            card_img_size,
+            card_margin,
+            image_table_size,
+            sorted_images,
+            sorted_names,
+            thumb_margin=thumb_margin,
+            text_h_rate=text_h_rate,
+            draw_frame=True,
+        )  # 画像をサムネイル化したカード画像を作成
+        for i, card in enumerate(thumbs_cards):
+            path = output_dir + os.sep + f"thumbnail_{i}.png"
+            cv2.imwrite(path, card)
+            card_images.append(card)
 
     # 各画像をA4 300 DPIに配置しPDF化
     images_to_pdf(
