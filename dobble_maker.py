@@ -797,7 +797,7 @@ def cv2_putText(
     img: np.ndarray,
     text: str,
     org: tuple[int, int],
-    font: str | tuple[str, int],
+    font: str,
     font_scale: None | int,
     color: str | tuple,
     anchor: str,
@@ -805,6 +805,7 @@ def cv2_putText(
     text_w: None | int = None,
     text_h: None | int = None,
     align: Literal["left", "center", "right"] = "left",
+    font_index: int = 0,
     stroke_width: int = 0,
     stroke_fill: None | tuple = None,
 ):
@@ -818,13 +819,7 @@ def cv2_putText(
         img: 対象画像 (上書きされる)
         text: 描画テキスト
         org: 描画位置 (x, y), 意味はanchorにより変わる
-        font:
-            str: フォントファイルパス (*.ttf | *.ttc)
-            int:
-                フォントファイルがttcの場合は複数フォントを含む。
-                その中で使用するフォントのインデックスを指定する。
-                フォント名は以下で確認が可能
-                    ImageFont.truetype(font=ttcファイルパス, index=インデックス).getname()
+        font: フォントファイルパス (*.ttf | *.ttc)
         font_scale:
             フォントサイズ,
             Noneの場合はtext_wあるいはtext_hの指定が必須
@@ -847,16 +842,11 @@ def cv2_putText(
             "left": 左揃え (default)
             "center": 中央揃え
             "right": 右揃え
+        font_index: フォントファイルがttcの場合は複数フォントを含む。その中で使用するフォントのインデックスを指定する。
         stroke_width: 文字枠の太さ
         stroke_fill: 文字枠の色
     """
     assert len(anchor) == 2
-
-    if isinstance(font, str):
-        font_face = font
-        index = 0
-    else:
-        font_face, index = font
 
     # デフォルトの行間は広いので調整
     spacing = 0.0
@@ -864,7 +854,7 @@ def cv2_putText(
     # テキスト描画域を取得
     x, y = org
     if font_scale is not None:
-        fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
+        fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
         dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
         xL, yT, xR, yB = dummy_draw.multiline_textbbox(
             (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
@@ -873,7 +863,7 @@ def cv2_putText(
         assert type(text_w) is int or type(text_h) is int
         font_scale = 1
         while True:
-            fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
+            fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
             dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
             xL, yT, xR, yB = dummy_draw.multiline_textbbox(
                 (0, 0), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
@@ -888,7 +878,7 @@ def cv2_putText(
         font_scale -= 1
         if font_scale < 1:
             raise ValueError("指定のサイズでは描画できない")
-        fontPIL = ImageFont.truetype(font=font_face, size=font_scale, index=index)
+        fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
         dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
         xL, yT, xR, yB = dummy_draw.multiline_textbbox(
             (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
@@ -948,6 +938,33 @@ def cv2_putText(
     img[y1:y2, x1:x2] = roi
 
 
+def _select_font() -> tuple[str, int]:
+    """使用するフォントを決定
+
+    Raises:
+        NotImplementedError: 使用するフォントが見つからない (Windows標準フォント)
+
+    Returns:
+        tuple[str, int]: fontパス, font_index
+    """
+    font_dir = os.environ["windir"] + os.sep + "fonts"
+
+    # 以下のフォントを順次検索し見つかればそれを使う
+    # フォント名は次の関数で確認が可能
+    #   ImageFont.truetype(font=ttcファイルパス, index=インデックス).getname()
+    candidates = [
+        ("uddigikyokashon-b.ttc", 2),  # UD デジタル 教科書体 NK-B (Bold)
+        ("meiryob.ttc", 2),  # Meiryo UI (Bold)
+        ("msgothic.ttc", 2),  # ＭＳ Ｐゴシック (Regular)
+    ]
+    for font, font_ind in candidates:
+        path = font_dir + os.sep + font
+        if os.path.exists(path):
+            return path, font_ind
+
+    raise NotImplementedError("Windows標準フォントが見つからない")
+
+
 def _draw_name_in_thumb(
     img: np.ndarray,
     thumb_w: int,
@@ -975,7 +992,8 @@ def _draw_name_in_thumb(
     """
     assert img.shape[2] == 3
 
-    font = (os.environ["windir"] + r"\fonts\uddigikyokashon-b.ttc", 2)
+    # Windows標準のフォントから使用するフォントを選択
+    font, font_index = _select_font()
 
     img_w, img_h = img.shape[1], img.shape[0]
     scale = min(thumb_w, thumb_h) / max(img_w, img_h)  # サムネイルの短辺に画像の長辺が収まるように縮小しないといけない
@@ -994,6 +1012,7 @@ def _draw_name_in_thumb(
         (0, 0, 0),
         "mb",
         align="center",
+        font_index=font_index,
         stroke_width=3,
         stroke_fill=(255, 255, 255),
         text_w=canv.shape[1],
