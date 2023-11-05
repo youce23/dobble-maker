@@ -166,7 +166,7 @@ class Application(tk.Frame):
         # 画像リスト作成 (ラベルフレーム内に配置しチェックボックスでON/OFF制御)
         check_thumb_frame = tk.LabelFrame(self.master, text="label frame")
         # * チェックボックス (ラベルフレームの制御)
-        _i_state = False  # チェックボックスの初期値
+        _i_state = True  # チェックボックスの初期値
         self.check_thumb_group: list[tuple[tk.Entry, str]] = []  # チェックボックスで有効/無効を切り替える(要素, 有効時のstate)を入れる
         self.check_thumb = tk.BooleanVar(value=_i_state)
         check_thumb_entry = tk.Checkbutton(
