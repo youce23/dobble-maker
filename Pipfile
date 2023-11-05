@@ -13,6 +13,8 @@ galois = "*"
 scipy = "*"
 shapely = "*"
 matplotlib = "*"
+openpyxl = "*"
+chardet = "*"
 
 [dev-packages]
 cx-freeze = "*"

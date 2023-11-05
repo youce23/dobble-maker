@@ -1,3 +1,4 @@
+import csv
 import glob
 import math
 import os
@@ -5,14 +6,21 @@ import random
 import tempfile
 from typing import Literal
 
+import chardet
 import cv2
 import galois
 import img2pdf
 import numpy as np
+import openpyxl
 import pypdf
 import tqdm
+from PIL import Image, ImageDraw, ImageFont
 
 from voronoi import cvt
+
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+OVERLAP_VAL = 127
 
 
 def is_prime(n: int) -> bool:
@@ -168,7 +176,12 @@ def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
 
 
 def load_images(
-    dir_name: str, num: int, *, ext: list[str] = ["jpg", "png"], shuffle: bool = False
+    dir_name: str,
+    num: int,
+    *,
+    ext: list[str] = ["jpg", "png"],
+    shuffle: bool = False,
+    trim_margin: bool = True,
 ) -> tuple[list[np.ndarray], list[str]]:
     """所定数の画像を読み込む
 
@@ -180,10 +193,11 @@ def load_images(
         num (int): 読み込む画像数
         ext (list[str], optional): 読み込み対象画像の拡張子. Defaults to ["jpg", "png"].
         shuffle (bool, optional): Trueなら画像ファイル一覧をシャッフルする. Defaults to False.
+        trim_margin (bool, optional): Trueなら画像の余白を除去する
 
     Returns:
         list[np.ndarray]: 読み込んだnum個の画像のリスト
-        list[str]]: 各画像のファイルパス
+        list[str]: 各画像のファイルパス
     """
     # 画像ファイル一覧を取得
     files: list[str] = [fname for e in ext for fname in glob.glob(f"{dir_name}/*.{e}")]
@@ -209,7 +223,6 @@ def load_images(
     images: list[np.ndarray] = []
     image_paths: list[str] = []
 
-    WHITE = (255, 255, 255)
     for path, _ in files:
         img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
@@ -226,6 +239,9 @@ def load_images(
             pass
         else:
             raise IOError(f"{path} のチャネル数({n_ch})はサポート対象外")
+
+        if trim_margin:
+            img = _trim_bb_image(img)
         images.append(img)
         image_paths.append(path)
 
@@ -281,10 +297,6 @@ def rotate_fit(
 
 def _make_canvas(is_circle: bool, width: int, height: int, margin: int) -> tuple[np.ndarray, np.ndarray]:
     """空のキャンバスを作成"""
-    BLACK = (0, 0, 0)
-    WHITE = (255, 255, 255)
-    OVERLAP_VAL = 127
-
     if is_circle:
         # 描画キャンバス
         canvas = np.full((height, width, 3), WHITE, dtype=np.uint8)
@@ -306,6 +318,14 @@ def _make_canvas(is_circle: bool, width: int, height: int, margin: int) -> tuple
     return canvas, canv_ol
 
 
+def _get_interpolation(scale: float):
+    """cv2.resize の interpolation の値を決める"""
+    downsize = cv2.INTER_AREA  # 縮小用
+    upsize = cv2.INTER_CUBIC  # 拡大用
+
+    return downsize if scale < 1 else upsize
+
+
 def _layout_random(
     is_circle: bool, width: int, height: int, margin: int, images: list[np.ndarray], show: bool
 ) -> np.ndarray:
@@ -323,22 +343,18 @@ def _layout_random(
     n_img_in_card = len(images)
     img_base_size = int(np.ceil(max(height, width) / np.ceil(np.sqrt(n_img_in_card))))
 
-    WHITE = (255, 255, 255)
-    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
-
     while True:
         # マスク画像に描画するパラメータ
         # キャンバスの作成
         canvas, canv_ol = _make_canvas(is_circle, width, height, margin)
         for img in images:
             # 元画像の余白を除去して外接矩形でトリミング
-            im_trim = _trim_bb_image(img)
-            im_bin_trim = np.full((im_trim.shape[0], im_trim.shape[1]), OVERLAP_VAL, dtype=np.uint8)
+            im_bin = np.full((img.shape[0], img.shape[1]), OVERLAP_VAL, dtype=np.uint8)
 
             # 長辺を基本サイズに拡縮
-            scale = img_base_size / max(im_trim.shape[0], im_trim.shape[1])
-            im_base = cv2.resize(im_trim, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-            im_bin_base = cv2.resize(im_bin_trim, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+            scale = img_base_size / max(img.shape[0], img.shape[1])
+            im_base = cv2.resize(img, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
+            im_bin_base = cv2.resize(im_bin, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
 
             # ランダムにリサイズ、回転、配置し、重複するならパラメータを変えて最大n_max回やり直し
             # (n_max回試してもダメなら最初からやり直し)
@@ -351,7 +367,7 @@ def _layout_random(
                 _canv_ol = cur_canv_ol.copy()
                 # ランダムにリサイズ
                 scale = random.uniform(0.5, 0.8)  # NOTE: 小さめの方が敷き詰めるのに時間がかからないが余白が増えるので適宜調整
-                _im_scl = cv2.resize(im_base, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+                _im_scl = cv2.resize(im_base, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
                 _im_bin_scl = cv2.resize(im_bin_base, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
 
                 # ランダムに回転
@@ -403,7 +419,6 @@ def _trim_bb_image(image: np.ndarray) -> np.ndarray:
     assert image.shape[2] == 3  # 3チャネルのカラー画像とする
 
     thr = 5  # 二値化の閾値
-    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
 
     im_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, im_bin = cv2.threshold(im_gray, 255 - thr, OVERLAP_VAL, cv2.THRESH_BINARY_INV)
@@ -427,6 +442,34 @@ def _rotate_2d(pt: tuple[float, float], degree: float, *, org: tuple[float, floa
     rot_y = x * math.sin(rad) + y * math.cos(rad)
 
     return (rot_x + org[0], rot_y + org[1])
+
+
+def _make_drawing_region_in_card(is_circle: bool, width: int, height: int, margin: int) -> list[tuple[float, float]]:
+    """カード内の描画範囲を取得
+
+    Args:
+        is_circle (bool): True なら 円, False なら 長方形
+        width (int): カードの幅
+        height (int): カードの高さ (円なら無視)
+        margin (int): カード外縁の余白
+
+    Returns:
+        list[tulpe[float, float]]: 描画範囲を凸包表現した際の座標リスト
+    """
+    if is_circle:
+        c = width / 2
+        r = width / 2 - margin
+        bnd_pts = [(c + r * np.cos(x / 180.0 * np.pi), c + r * np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
+    else:
+        bnd_pts = [
+            (margin, margin),
+            (width - margin, margin),
+            (width - margin, height - margin),
+            (margin, height - margin),
+        ]
+        bnd_pts = [(float(x), float(y)) for x, y in bnd_pts]  # cast
+
+    return bnd_pts
 
 
 def _layout_voronoi(
@@ -454,21 +497,8 @@ def _layout_voronoi(
     """
     assert not is_circle or (is_circle and width == height)
 
-    WHITE = (255, 255, 255)
-    OVERLAP_VAL = 127  # 重複チェック用キャンバスの値
-
     # 各カードの配置位置と範囲を計算 (x, yで計算)
-    if is_circle:
-        c = width / 2
-        r = width / 2 - margin
-        bnd_pts = [(c + r * np.cos(x / 180.0 * np.pi), c + r * np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
-    else:
-        bnd_pts = [
-            (margin, margin),
-            (width - margin, margin),
-            (width - margin, height - margin),
-            (margin, height - margin),
-        ]
+    bnd_pts = _make_drawing_region_in_card(is_circle, width, height, margin)
 
     # 重心ボロノイ分割で各画像の中心位置と範囲を取得
     # (範囲は目安であり変わっても良い)
@@ -531,7 +561,7 @@ def _layout_voronoi(
                 # 画像貼り付け位置にマスクを描画
                 mask_img = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
                 _pts = np.array([lt, rt, lb, rb], dtype=int)
-                cv2.fillConvexPoly(mask_img, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
+                cv2.fillConvexPoly(mask_img, _pts, OVERLAP_VAL, lineType=cv2.LINE_4)
 
                 # ボロノイ境界を超えない制約をつけるために境界線を描画
                 # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
@@ -559,7 +589,7 @@ def _layout_voronoi(
                     _pts = np.array([lt, rt, lb, rb], dtype=int)
                     cv2.fillConvexPoly(im_mask, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
 
-                    _im_scl = cv2.resize(im_trim, None, fx=scl_r, fy=scl_r, interpolation=cv2.INTER_CUBIC)
+                    _im_scl = cv2.resize(im_trim, None, fx=scl_r, fy=scl_r, interpolation=_get_interpolation(scl_r))
                     _im_rot = rotate_fit(_im_scl, -(deg + init_deg), flags=cv2.INTER_CUBIC, borderValue=WHITE)
                     dx = pos[0] - _im_rot.shape[1] / 2
                     dy = pos[1] - _im_rot.shape[0] / 2
@@ -712,7 +742,7 @@ def images_to_pdf(
         card_h = card.shape[0]
         card_w = card.shape[1]
         scale = resize_card_long / max(card_h, card_w)
-        resize_card = cv2.resize(card, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        resize_card = cv2.resize(card, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
 
         resize_h = resize_card.shape[0]
         resize_w = resize_card.shape[1]
@@ -763,6 +793,535 @@ def images_to_pdf(
     return
 
 
+def cv2_putText(
+    img: np.ndarray,
+    text: str,
+    org: tuple[int, int],
+    font: str,
+    font_scale: None | int,
+    color: str | tuple,
+    anchor: str,
+    *,
+    text_w: None | int = None,
+    text_h: None | int = None,
+    align: Literal["left", "center", "right"] = "left",
+    font_index: int = 0,
+    stroke_width: int = 0,
+    stroke_fill: None | tuple = None,
+):
+    """日本語テキストの描画
+
+    参考:
+        OpenCVで日本語フォントを描画する を関数化する を最新にする,
+        https://qiita.com/mo256man/items/f07bffcf1cfedf0e42e0
+
+    Args:
+        img: 対象画像 (上書きされる)
+        text: 描画テキスト
+        org: 描画位置 (x, y), 意味はanchorにより変わる
+        font: フォントファイルパス (*.ttf | *.ttc)
+        font_scale:
+            フォントサイズ,
+            Noneの場合はtext_wあるいはtext_hの指定が必須
+        color: 描画色
+        anchor (str):
+            2文字で指定する, 1文字目はx座標について, 2文字目はy座標について以下のルールで指定する
+            1文字目: "l", "m", "r" のいずれかを指定. それぞれテキストボックスの 左端, 中心, 右端 を意味する
+            2文字目: "t", "m", "b" のいずれかを指定. それぞれテキストボックスの 上端, 中心, 下端 を意味する
+        text_w:
+            描画するテキスト幅 [pix]
+            このサイズ以下になるギリギリのサイズで描画する
+            (font_scaleがNoneの場合のみ有効)
+        text_h:
+            描画するテキスト高さ [pix]
+            このサイズ以下になるギリギリのサイズで描画する
+            (font_scaleがNoneの場合のみ有効)
+        max_text_h:
+        align:
+            text に複数行(改行文字"\n"を含む文字列)を指定した場合の描画方法
+            "left": 左揃え (default)
+            "center": 中央揃え
+            "right": 右揃え
+        font_index: フォントファイルがttcの場合は複数フォントを含む。その中で使用するフォントのインデックスを指定する。
+        stroke_width: 文字枠の太さ
+        stroke_fill: 文字枠の色
+    """
+    assert len(anchor) == 2
+
+    # デフォルトの行間は広いので調整
+    spacing = 0.0
+
+    # テキスト描画域を取得
+    x, y = org
+    if font_scale is not None:
+        fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
+        dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
+        xL, yT, xR, yB = dummy_draw.multiline_textbbox(
+            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
+        )
+    else:
+        assert type(text_w) is int or type(text_h) is int
+        font_scale = 1
+        while True:
+            fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
+            dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
+            xL, yT, xR, yB = dummy_draw.multiline_textbbox(
+                (0, 0), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
+            )
+            bb_w = xR - xL
+            bb_h = yB - yT
+            if type(text_w) is int and bb_w > text_w:
+                break
+            elif type(text_h) is int and bb_h > text_h:
+                break
+            font_scale += 1
+        font_scale -= 1
+        if font_scale < 1:
+            raise ValueError("指定のサイズでは描画できない")
+        fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
+        dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
+        xL, yT, xR, yB = dummy_draw.multiline_textbbox(
+            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
+        )
+
+    # 少なくともalignを"center"にした場合にxL, xRがfloatになることがあったため、intにキャスト
+    xL, yT, xR, yB = int(np.floor(xL)), int(np.floor(yT)), int(np.ceil(xR)), int(np.ceil(yB))
+
+    # anchorによる座標の変換
+    img_h, img_w = img.shape[:2]
+    if anchor[0] == "l":
+        offset_x = xL - x
+    elif anchor[0] == "m":
+        offset_x = (xR + xL) // 2 - x
+    elif anchor[0] == "r":
+        offset_x = xR - x
+    else:
+        raise NotImplementedError
+
+    if anchor[1] == "t":
+        offset_y = yT - y
+    elif anchor[1] == "m":
+        offset_y = (yB + yT) // 2 - y
+    elif anchor[1] == "b":
+        offset_y = yB - y
+    else:
+        raise NotImplementedError
+
+    x0, y0 = x - offset_x, y - offset_y
+    xL, yT = xL - offset_x, yT - offset_y
+    xR, yB = xR - offset_x, yB - offset_y
+
+    # 画面外なら何もしない
+    if xR <= 0 or xL >= img_w or yB <= 0 or yT >= img_h:
+        print("out of bounds")
+        return img
+
+    # ROIを取得する
+    x1, y1 = max([xL, 0]), max([yT, 0])
+    x2, y2 = min([xR, img_w]), min([yB, img_h])
+    roi = img[y1:y2, x1:x2]
+
+    # ROIをPIL化してテキスト描画しCV2に戻る
+    roiPIL = Image.fromarray(roi)
+    draw = ImageDraw.Draw(roiPIL)
+    draw.text(
+        (x0 - x1, y0 - y1),
+        text,
+        color,
+        fontPIL,
+        align=align,
+        stroke_width=stroke_width,
+        stroke_fill=stroke_fill,
+        spacing=spacing,
+    )
+    roi = np.array(roiPIL, dtype=np.uint8)
+    img[y1:y2, x1:x2] = roi
+
+
+def _select_font() -> tuple[str, int]:
+    """使用するフォントを決定
+
+    Raises:
+        NotImplementedError: 使用するフォントが見つからない (Windows標準フォント)
+
+    Returns:
+        tuple[str, int]: fontパス, font_index
+    """
+    font_dir = os.environ["windir"] + os.sep + "fonts"
+
+    # 以下のフォントを順次検索し見つかればそれを使う
+    # フォント名は次の関数で確認が可能
+    #   ImageFont.truetype(font=ttcファイルパス, index=インデックス).getname()
+    candidates = [
+        ("uddigikyokashon-b.ttc", 2),  # UD デジタル 教科書体 NK-B (Bold)
+        ("meiryob.ttc", 2),  # Meiryo UI (Bold)
+        ("msgothic.ttc", 2),  # ＭＳ Ｐゴシック (Regular)
+    ]
+    for font, font_ind in candidates:
+        path = font_dir + os.sep + font
+        if os.path.exists(path):
+            return path, font_ind
+
+    raise NotImplementedError("Windows標準フォントが見つからない")
+
+
+def _draw_name_in_thumb(
+    img: np.ndarray,
+    thumb_w: int,
+    thumb_h: int,
+    name: str,
+    *,
+    text_h_rate: float = 1.0,
+) -> np.ndarray:
+    """画像＋テキストをサムネイル化
+
+    Args:
+        img (np.ndarray):
+            入力画像, 3チャネルのBGR画像であること
+        thumb_w (int):
+            サムネイル幅 (テキストを含む)
+        thumb_h (int):
+            サムネイル高さ (テキストを含む)
+        name (str):
+            描画テキスト
+        text_h_rate:
+            thumb_h に対する描画テキストの最大高さの割合
+
+    Returns:
+        np.ndarray: サムネイル + 直下にテキストをレンダリングした画像
+    """
+    assert img.shape[2] == 3
+
+    # Windows標準のフォントから使用するフォントを選択
+    font, font_index = _select_font()
+
+    img_w, img_h = img.shape[1], img.shape[0]
+    scale = min(thumb_w, thumb_h) / max(img_w, img_h)  # サムネイルの短辺に画像の長辺が収まるように縮小しないといけない
+
+    canv = np.ones((thumb_h, thumb_w, 3), dtype=img.dtype) * 255
+    resized = cv2.resize(img, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
+    x0 = (canv.shape[1] - resized.shape[1]) // 2
+    y0 = (canv.shape[0] - resized.shape[0]) // 2
+    canv[y0 : (y0 + resized.shape[0]), x0 : (x0 + resized.shape[1]), :] = resized
+    cv2_putText(
+        canv,
+        name,
+        (canv.shape[1] // 2, canv.shape[0]),
+        font,
+        None,
+        (0, 0, 0),
+        "mb",
+        align="center",
+        font_index=font_index,
+        stroke_width=3,
+        stroke_fill=(255, 255, 255),
+        text_w=canv.shape[1],
+        text_h=int(np.floor(canv.shape[0] * text_h_rate)),
+    )
+
+    return canv
+
+
+def make_image_of_thumbnails_with_names(
+    card_size: int | tuple[int, int],
+    margin: int,
+    table_size: tuple[int, int],
+    images: list[np.ndarray],
+    names: list[str],
+    *,
+    thumb_margin: float = 0.05,
+    text_h_rate: float = 0.25,
+    draw_frame: bool = False,
+    show: bool = False,
+    show_wait_ms: int = 0,
+) -> list[np.ndarray]:
+    """シンボル画像のサムネイルと名前を一覧するカード画像を作成
+
+    Args:
+        is_circle (bool): 出力画像が円形か否か
+        width (int): 出力画像の幅
+        height (int): 出力画像の高さ (is_circleならwidthと同じであること)
+        margin (int): 出力画像の外縁につける余白サイズ
+        table_size (tuple[int, int]): サムネイルを表形式で並べる際の表の(行数, 列数)
+        images (list[np.ndarray]): 配置画像ソース
+        names (list[str]): images毎の表示名
+        thumb_margin (float):
+            出力画像の描画領域を表サイズで分割した領域(セル)において、
+            さらにサムネイルの周囲につける余白のセルサイズに対する割合 (0以上0.5未満)
+        text_h_rate (float):
+            サムネイルの高さに対する描画テキストの最大高さの割合
+        draw_frame (bool): 印刷を想定した枠を描画するならTrue
+        show (bool): 計算中の画像を画面表示するならTrue
+        show_wait_ms (int): show is True 時に表示するウィンドウの待ち時間, 0ならキー入力
+
+    Returns:
+        list[np.ndarray]:
+            サムネイルを並べたカード画像のリスト
+    """
+    if isinstance(card_size, int):
+        is_circle = True
+        width = height = card_size
+    else:
+        assert isinstance(card_size, tuple) and len(card_size) == 2
+        is_circle = False
+        width, height = card_size
+
+    assert not is_circle or (is_circle and width == height)
+    assert len(images) == len(names)
+    assert 0.0 <= thumb_margin < 0.5
+
+    # 円の場合、端にはシンボルを描画できないので少し小さめのサイズを描画範囲とする
+    table_scale = 0.98 if is_circle else 1.0
+    table_x0 = margin + width * (1 - table_scale) / 2
+    table_y0 = margin + height * (1 - table_scale) / 2
+
+    # テーブルのセルサイズを計算
+    cell_w = table_scale * (width - 2 * margin) / table_size[1]
+    cell_h = table_scale * (height - 2 * margin) / table_size[0]
+
+    # サムネイルのサイズを計算
+    _thumb_w = cell_w - 2 * thumb_margin * cell_w
+    _thumb_h = cell_h - 2 * thumb_margin * cell_h
+
+    margin_thumb_w = (cell_w - _thumb_w) / 2
+    margin_thumb_h = (cell_h - _thumb_h) / 2
+    thumb_w = int(_thumb_w)
+    thumb_h = int(_thumb_h)
+
+    # 各画像 + テキストをレンダリングした画像を生成
+    thumbs: list[np.ndarray] = []
+    for symbl_img, symbl_name in zip(images, names):
+        try:
+            thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=text_h_rate)
+        except Exception:
+            raise Exception("サムネイルにテキストを描画できない")
+
+        thumbs.append(thumb)
+
+    # 各画像をカードにテーブル形式で描画
+    cards: list[np.ndarray] = []
+
+    canvas = None
+    pos_x = pos_y = 0  # 描画位置
+    cnt_img_in_card = 0  # カードに描画された画像数 (エラーチェック用に使う)
+    for thumb_img in thumbs:
+        ok = False
+        while not ok:
+            if canvas is None:
+                canvas, canvas_ov = _make_canvas(is_circle, width, height, margin)
+            # 描画位置に入るか確認
+            try_canv_ov = np.copy(canvas_ov)
+            x0 = table_x0 + pos_x * cell_w
+            y0 = table_y0 + pos_y * cell_h
+            x0_m = int(x0 + margin_thumb_w)
+            y0_m = int(y0 + margin_thumb_h)
+            try_canv_ov[
+                y0_m : (y0_m + thumb_h),
+                x0_m : (x0_m + thumb_w),
+            ] += OVERLAP_VAL
+
+            if show:
+                cv2.imshow("canvas", canvas)
+                cv2.imshow("canvas_ov", canvas_ov)
+                cv2.imshow("try", try_canv_ov)
+                cv2.waitKey(show_wait_ms)
+
+            # 端がギリギリで入りにくいので、適当に重なりを許容
+            n_ov_pixs = (try_canv_ov > OVERLAP_VAL).sum() - (canvas_ov > OVERLAP_VAL).sum()
+            if n_ov_pixs <= max(thumb_w, thumb_h):
+                # 描画可能なので描画
+                canvas_ov = try_canv_ov
+                canvas[
+                    y0_m : (y0_m + thumb_h),
+                    x0_m : (x0_m + thumb_w),
+                    :,
+                ] = thumb_img
+                ok = True
+                cnt_img_in_card += 1
+
+                if show:
+                    cv2.imshow("canvas", canvas)
+                    cv2.waitKey(show_wait_ms)
+
+            # 描画できてもできなくても次の位置へ
+            pos_x += 1
+            if pos_x >= table_size[1]:
+                pos_x = 0
+                pos_y += 1
+            if pos_y >= table_size[0]:
+                # このカードがいっぱいだったら、カードを出力してから次の画像へ
+                if cnt_img_in_card == 0:
+                    # 1個も描画できないまま次の画像へ行ってしまったら、テーブルサイズの設定ミスなので例外送出
+                    raise ValueError("カードにサムネイルが描画できないのでテーブルサイズの調整が必要")
+                canvas = np.where(canvas_ov[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
+                cards.append(canvas)
+                canvas = None
+                cnt_img_in_card = 0
+                pos_x = 0
+                pos_y = 0
+
+    if cnt_img_in_card > 0:
+        # 未出力のカード画像を処理
+        assert canvas is not None
+        canvas = np.where(canvas_ov[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
+        cards.append(canvas)
+
+    # 枠線を描画
+    if draw_frame:
+        gray = (127, 127, 127)
+        if is_circle:
+            center = (int(height / 2), int(width / 2))
+            radius = int(width / 2)
+            for card in cards:
+                cv2.circle(card, center, radius, gray, thickness=1)
+        else:
+            for card in cards:
+                cv2.rectangle(card, (0, 0), (width - 1, height - 1), gray, thickness=1)
+
+    if show:
+        for i, card in enumerate(cards):
+            cv2.imshow(f"#{i}", card)
+        cv2.waitKey(show_wait_ms)
+
+        cv2.destroyAllWindows()
+
+    return cards
+
+
+def detect_encoding(file_path: str) -> str:
+    """テキストファイルのencodingを推定"""
+    with open(file_path, "rb") as f:
+        data = f.read()
+
+    return chardet.detect(data)["encoding"]
+
+
+def load_image_list(image_list_path: str) -> dict[str, str]:
+    """画像リストの読み込み
+
+    Args:
+        image_list_path (str):
+            画像リストファイルパス (.xlsx|.csv)
+            * "ファイル名"列, 及び"名前"列を持つこと（列名は先頭行）
+            * "ファイル名": 拡張子を除く画像ファイル名
+            * "名前": カードに描画する表示名, テキストで「\n」と記載がある場合は改行文字に変換する
+
+    Returns:
+        dict[str, str]:
+            key: ファイル名
+            value: 名前
+    """
+    # 画像リストの読み込み
+    # "ファイル名"列: 拡張子を除くファイル名
+    # "名前"列: カードに描画する
+
+    data_list: dict[str, str] = dict()  # key: "ファイル名", value: "名前", を持つdict
+
+    ext = os.path.splitext(image_list_path)[1]
+    if ext == ".xlsx":
+        # xlsx読み込み
+        wb = openpyxl.load_workbook(image_list_path, read_only=True, data_only=True)
+        sheet = wb.active
+        # "ファイル名"と"名前"の列のインデックスを取得
+        file_name_index = None
+        name_index = None
+
+        for col, header in enumerate(sheet[1], 1):
+            if header.value == "ファイル名":
+                file_name_index = col
+            elif header.value == "名前":
+                name_index = col
+
+        # 両方がそろっていなければファイルのフォーマットエラー
+        if file_name_index is None:
+            raise Exception(f"'{image_list_path}'に'ファイル名'列が存在しない")
+        elif name_index is None:
+            raise Exception(f"'{image_list_path}'に'名前'列が存在しない")
+
+        # データを取得
+        for row in sheet.iter_rows(values_only=True, min_row=2):  # 先頭行は除く
+            if file_name_index is not None and name_index is not None:
+                _fname = row[file_name_index - 1]
+                _name = row[name_index - 1]
+                # 空でもいったん読み込んでおく (csvと挙動を合わせるため)
+                file_name = _fname if _fname is not None else ""
+                name = _name if _name is not None else ""
+
+                data_list[file_name] = name
+
+        wb.close()
+    elif ext == ".csv":
+        # 文字コード判定
+        encoding = detect_encoding(image_list_path)
+        with open(image_list_path, newline="", encoding=encoding) as csvfile:
+            reader = csv.DictReader(csvfile)
+
+            for row in reader:
+                file_name = row.get("ファイル名")
+                name = row.get("名前")
+                if file_name is None:
+                    raise Exception(f"{image_list_path}に'ファイル名'列が存在しない")
+                elif name is None:
+                    raise Exception(f"{image_list_path}に'名前'列が存在しない")
+
+                if file_name is not None and name is not None:
+                    data_list[file_name] = name
+    else:
+        raise NotImplementedError(f"拡張子 {ext} は未対応")
+
+    # 空は許容しない
+    for file_name, name in data_list.items():
+        if file_name == "" and name != "":
+            raise Exception(f"'{image_list_path}'の'{name}'のファイル名が空")
+        elif file_name != "" and name == "":
+            raise Exception(f"'{image_list_path}'の'{file_name}'の名前が空")
+        elif file_name == "" and name == "":
+            raise Exception(f"'{image_list_path}'のファイル名, 名前が空の行がある")
+
+    # "名前"列の改行文字変換
+    data_list = {key: val.replace("\\n", "\n") for key, val in data_list.items()}
+
+    return data_list
+
+
+def sort_images_by_image_list(
+    images: list[np.ndarray], image_paths: list[str], image_names: dict[str, str]
+) -> tuple[list[np.ndarray], list[str]]:
+    """画像と画像名を辞書に記載の順序でソートする
+
+    Args:
+        images (list[np.ndarray]): 入力画像
+        image_paths (list[str]): 各入力画像のファイルパス
+        image_names (dict[str, str]):
+            key: 拡張子を除く画像ファイル名, image_paths(の拡張子除くファイル名)がすべてここに含まれること
+            value: 表示名
+
+    Returns:
+        list[np.ndarray]: image_namesに記載の順序でソートされたimages
+        list[str]: 対応する表示名
+    """
+    assert len(images) == len(image_paths)
+    image_bases = [os.path.basename(os.path.splitext(x)[0]) for x in image_paths]
+
+    # 使用された画像ファイルがすべて画像名リストに記載されているかチェック
+    for img_base in image_bases:
+        if img_base not in image_names.keys():
+            raise ValueError(f"{img_base} が画像リストの'ファイル名'列に存在しない")
+
+    # images, image_pathsをimage_namesに記載の順序で並び替え
+    sorted_images: list[np.ndarray] = list()
+    sorted_names: list[str] = list()
+    for base, name in image_names.items():
+        if base in image_bases:
+            p = image_bases.index(base)
+            sorted_images.append(images[p].copy())
+            sorted_names.append(name)
+
+    assert len(sorted_images) == len(sorted_names) == len(images) == len(image_paths)
+
+    return sorted_images, sorted_names
+
+
 def main():
     # ============
     # パラメータ設定
@@ -782,6 +1341,11 @@ def main():
     dpi = 300  # 解像度
     card_size_mm = 95  # カードの長辺サイズ[mm]
     page_size_mm = (210, 297)  # PDFの(幅, 高さ)[mm]
+    # 画像リストの設定
+    image_list_path: None | str = r"samples\画像リスト.xlsx"  # xlsx | csv のパス
+    image_table_size: tuple[int, int] = (8, 6)  # 画像リストの表サイズ (行数, 列数)
+    thumb_margin: float = 0.055  # サムネイル周囲の余白調整 (0.0-0.5, 主にカード端に画像が入らない場合の微調整用)
+    text_h_rate: float = 0.3  # サムネイル高さに対する上限文字高さの割合
 
     # その他
     shuffle: bool = False  # True: 画像読み込みをシャッフルする
@@ -806,11 +1370,12 @@ def main():
     pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
 
     # image_dirからn_symbols数の画像を取得
-    images, _ = load_images(image_dir, n_symbols, shuffle=shuffle)
+    images, image_paths = load_images(image_dir, n_symbols, shuffle=shuffle)
 
-    # len(pairs)枚のカード画像を作成し、保存
+    # 出力フォルダ作成
     os.makedirs(output_dir, exist_ok=True)
 
+    # len(pairs)枚のカード画像を作成し、保存
     card_images = []
     for i, image_indexes in enumerate(tqdm.tqdm(pairs, desc="layout images")):
         path = output_dir + os.sep + f"{i}.png"
@@ -832,6 +1397,27 @@ def main():
             assert card_img is not None  # 必ず読み込める前提
 
         card_images.append(card_img)
+
+    # 画像リストファイルの指定があれば画像リストカード画像を作成
+    if image_list_path is not None:
+        image_names = load_image_list(image_list_path)
+        sorted_images, sorted_names = sort_images_by_image_list(
+            images, image_paths, image_names
+        )  # image_namesの順序でimage_pathsをソート
+        thumbs_cards = make_image_of_thumbnails_with_names(
+            card_img_size,
+            card_margin,
+            image_table_size,
+            sorted_images,
+            sorted_names,
+            thumb_margin=thumb_margin,
+            text_h_rate=text_h_rate,
+            draw_frame=True,
+        )  # 画像をサムネイル化したカード画像を作成
+        for i, card in enumerate(thumbs_cards):
+            path = output_dir + os.sep + f"thumbnail_{i}.png"
+            cv2.imwrite(path, card)
+            card_images.append(card)
 
     # 各画像をA4 300 DPIに配置しPDF化
     images_to_pdf(
