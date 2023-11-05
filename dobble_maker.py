@@ -1091,7 +1091,11 @@ def make_image_of_thumbnails_with_names(
     # 各画像 + テキストをレンダリングした画像を生成
     thumbs: list[np.ndarray] = []
     for symbl_img, symbl_name in zip(images, names):
-        thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=text_h_rate)
+        try:
+            thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=text_h_rate)
+        except Exception:
+            raise Exception("サムネイルにテキストを描画できない")
+
         thumbs.append(thumb)
 
     # 各画像をカードにテーブル形式で描画
@@ -1228,10 +1232,22 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
             elif header.value == "名前":
                 name_index = col
 
+        # 両方がそろっていなければファイルのフォーマットエラー
+        if file_name_index is None:
+            raise Exception(f"'{image_list_path}'に'ファイル名'列が存在しない")
+        elif name_index is None:
+            raise Exception(f"'{image_list_path}'に'名前'列が存在しない")
+
         # データを取得
         for row in sheet.iter_rows(values_only=True, min_row=2):  # 先頭行は除く
             if file_name_index is not None and name_index is not None:
-                data_list[row[file_name_index - 1]] = row[name_index - 1]
+                _fname = row[file_name_index - 1]
+                _name = row[name_index - 1]
+                # 空でもいったん読み込んでおく (csvと挙動を合わせるため)
+                file_name = _fname if _fname is not None else ""
+                name = _name if _name is not None else ""
+
+                data_list[file_name] = name
 
         wb.close()
     elif ext == ".csv":
@@ -1243,11 +1259,24 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
             for row in reader:
                 file_name = row.get("ファイル名")
                 name = row.get("名前")
+                if file_name is None:
+                    raise Exception(f"{image_list_path}に'ファイル名'列が存在しない")
+                elif name is None:
+                    raise Exception(f"{image_list_path}に'名前'列が存在しない")
 
-                if file_name and name:
+                if file_name is not None and name is not None:
                     data_list[file_name] = name
     else:
         raise NotImplementedError(f"拡張子 {ext} は未対応")
+
+    # 空は許容しない
+    for file_name, name in data_list.items():
+        if file_name == "" and name != "":
+            raise Exception(f"'{image_list_path}'の'{name}'のファイル名が空")
+        elif file_name != "" and name == "":
+            raise Exception(f"'{image_list_path}'の'{file_name}'の名前が空")
+        elif file_name == "" and name == "":
+            raise Exception(f"'{image_list_path}'のファイル名, 名前が空の行がある")
 
     # "名前"列の改行文字変換
     data_list = {key: val.replace("\\n", "\n") for key, val in data_list.items()}
