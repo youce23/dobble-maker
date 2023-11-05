@@ -18,6 +18,10 @@ from dobble_maker import (
 
 
 class Application(tk.Frame):
+    DPI = 300  # 解像度
+    MM_PER_INCH = 25.4
+    PIX_PER_MM = DPI / MM_PER_INCH  # 1mmあたりのピクセル数
+
     def _select_input_dir(self):
         # 入力フォルダ選択ダイアログ
         dir = self.input_dir.get()
@@ -39,6 +43,22 @@ class Application(tk.Frame):
         if dir_name == "":  # キャンセル押下時
             return
         self.output_dir.set(dir_name)
+
+    def _select_image_list_file(self):
+        # *.xlsx or *.csv ファイル選択ダイアログ
+        path = self.image_list_file_path.get()
+        if os.path.isfile(path):
+            init_dir = os.path.dirname(path)
+            init_file = os.path.basename(path)
+        else:
+            init_dir = self.input_dir.get()
+            init_file = None
+        path = filedialog.askopenfilename(
+            filetypes=[("画像リストファイル", "*.xlsx;*.csv")], initialdir=init_dir, initialfile=init_file
+        )
+        if path == "":  # キャンセル押下時
+            return
+        self.image_list_file_path.set(path)
 
     def __init__(self, master=None):
         cur_dir = os.getcwd()
@@ -140,6 +160,81 @@ class Application(tk.Frame):
         seed_label = tk.Label(self.master, text="乱数seed (整数)")
         seed_entry = tk.Entry(self.master, width=6, textvariable=self.seed)
 
+        # 画像リスト作成 (ラベルフレーム内に配置しチェックボックスでON/OFF制御)
+        check_thumb_frame = tk.LabelFrame(self.master, text="label frame")
+        # * チェックボックス (ラベルフレームの制御)
+        _i_state = False  # チェックボックスの初期値
+        self.check_thumb_group: list[tuple[tk.Entry, str]] = []  # チェックボックスで有効/無効を切り替える(要素, 有効時のstate)を入れる
+        self.check_thumb = tk.BooleanVar(value=_i_state)
+        check_thumb_entry = tk.Checkbutton(
+            self.master, text="シンボル一覧を作成", variable=self.check_thumb, command=self._change_state_by_check_thumb
+        )
+        check_thumb_frame["labelwidget"] = check_thumb_entry
+        # * 画像リストファイルパス (*.xlsx, *.csv)
+        self.image_list_file_path = tk.StringVar(value=self.input_dir.get() + os.sep + "画像リスト.xlsx")
+        image_list_file_label = tk.Label(check_thumb_frame, text="入力ファイル")
+        image_list_file_entry = tk.Entry(
+            check_thumb_frame,
+            width=64,
+            textvariable=self.image_list_file_path,
+            state=tk.NORMAL if _i_state else tk.DISABLED,
+        )
+        image_list_file_button = tk.Button(
+            check_thumb_frame,
+            text="...",
+            command=self._select_image_list_file,
+            state=tk.NORMAL if _i_state else tk.DISABLED,
+        )
+        self.check_thumb_group.append((image_list_file_entry, tk.NORMAL))
+        self.check_thumb_group.append((image_list_file_button, tk.NORMAL))
+        # * テーブルサイズ
+        self.table_rows = tk.IntVar(value=7)
+        self.table_cols = tk.IntVar(value=5)
+        table_rows_label = tk.Label(check_thumb_frame, text="行数")
+        table_cols_label = tk.Label(check_thumb_frame, text="列数")
+        table_rows_entry = tk.Spinbox(
+            check_thumb_frame,
+            state="readonly" if _i_state else tk.DISABLED,
+            width=6,
+            from_=1,
+            to=30,
+            increment=1,
+            textvariable=self.table_rows,
+        )
+        table_cols_entry = tk.Spinbox(
+            check_thumb_frame,
+            state="readonly" if _i_state else tk.DISABLED,
+            width=6,
+            from_=1,
+            to=30,
+            increment=1,
+            textvariable=self.table_cols,
+        )
+        self.check_thumb_group.append((table_rows_entry, "readonly"))
+        self.check_thumb_group.append((table_cols_entry, "readonly"))
+        # * 余白調整パラメータ
+        self.thumb_margin_p = tk.DoubleVar(value=0.05)
+        thumb_margin_p_label = tk.Label(check_thumb_frame, text="シンボルサイズ調整値")
+        thumb_margin_p_entry = tk.Spinbox(
+            check_thumb_frame,
+            state="readonly" if _i_state else tk.DISABLED,
+            width=6,
+            from_=0,
+            to=0.1,
+            increment=0.005,
+            textvariable=self.thumb_margin_p,
+        )
+        thumb_margin_p_desc = tk.Label(check_thumb_frame, text="値を大きくするとシンボルが小さくなり、カード端に描画されやすくなります")
+        self.check_thumb_group.append((thumb_margin_p_entry, "readonly"))
+        # * シンボル一覧のみ作成ボタン
+        make_thumbs_button = tk.Button(
+            check_thumb_frame,
+            state=tk.NORMAL if _i_state else tk.DISABLED,
+            text="シンボル一覧のみ作成",
+            command=self._make_thumbnails,
+        )
+        self.check_thumb_group.append((make_thumbs_button, tk.NORMAL))
+
         # 計算実行ボタン
         calculate_button = tk.Button(self.master, text="計算実行", command=self._run)
 
@@ -205,6 +300,28 @@ class Application(tk.Frame):
         seed_entry.grid(row=row, column=1, stick=tk.W)
         row += 1
 
+        check_thumb_frame.grid(row=row, column=0, columnspan=4)
+        # -- 以下はフレーム内に配置 ----
+        fr_row = 0
+        image_list_file_label.grid(row=fr_row, column=0, stick=tk.E)
+        image_list_file_entry.grid(row=fr_row, column=1, stick=tk.W, columnspan=2)
+        image_list_file_button.grid(row=fr_row, column=3, stick=tk.W)
+        fr_row += 1
+        table_rows_label.grid(row=fr_row, column=0, stick=tk.E)
+        table_rows_entry.grid(row=fr_row, column=1, stick=tk.W)
+        fr_row += 1
+        table_cols_label.grid(row=fr_row, column=0, stick=tk.E)
+        table_cols_entry.grid(row=fr_row, column=1, stick=tk.W)
+        fr_row += 1
+        thumb_margin_p_label.grid(row=fr_row, column=0, stick=tk.E)
+        thumb_margin_p_entry.grid(row=fr_row, column=1, stick=tk.W)
+        thumb_margin_p_desc.grid(row=fr_row, column=2, stick=tk.W)
+        fr_row += 1
+        make_thumbs_button.grid(row=fr_row, column=0, pady=5, columnspan=4)
+        fr_row += 1
+        # -- ここまで --
+        row += 1
+
         calculate_button.grid(row=row, column=0, pady=5, columnspan=3)
         row += 1
 
@@ -258,6 +375,11 @@ class Application(tk.Frame):
 
         return ""
 
+    def _change_state_by_check_thumb(self):
+        # 画像リスト作成チェックボックスのON/OFFで、関連する要素の有効/無効を切り替え
+        for entry, state in self.check_thumb_group:
+            entry.config(state=state if self.check_thumb.get() else tk.DISABLED)
+
     def _run(self):
         err_msg = self._error_check_params()
         if err_msg != "":
@@ -265,10 +387,6 @@ class Application(tk.Frame):
             return
 
         # 各パラメータを取得
-        DPI = 300  # 解像度
-        MM_PER_INCH = 25.4
-        pix_per_mm = DPI / MM_PER_INCH  # 1mmあたりのピクセル数
-
         _card_shape: Literal["円", "長方形"] = self.card_shape.get()
 
         image_dir = self.input_dir.get()  # 入力画像ディレクトリ
@@ -281,11 +399,13 @@ class Application(tk.Frame):
         # card_img_size: カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
         if _card_shape == "円":
             card_size_mm = self.card_width.get()
-            card_img_size = int(card_size_mm * pix_per_mm)
+            card_img_size = int(card_size_mm * Application.PIX_PER_MM)
         else:
             card_size_mm = max(self.card_width.get(), self.card_height.get())
-            card_img_size = tuple(int(x * pix_per_mm) for x in (self.card_width.get(), self.card_height.get()))
-        card_margin = int(self.card_margin.get() * pix_per_mm)  # カード1枚の余白サイズ [pix]
+            card_img_size = tuple(
+                int(x * Application.PIX_PER_MM) for x in (self.card_width.get(), self.card_height.get())
+            )
+        card_margin = int(self.card_margin.get() * Application.PIX_PER_MM)  # カード1枚の余白サイズ [pix]
         page_size_mm = (self.page_width.get(), self.page_height.get())  # PDFの(幅, 高さ)[mm]
         seed = int(self.seed.get())  # 乱数種
 
@@ -336,17 +456,23 @@ class Application(tk.Frame):
 
             card_images.append(card_img)
 
+        # TODO: シンボル一覧画像 作成機能の実装
+
         # 各画像をA4 300 DPIに配置しPDF化
         images_to_pdf(
             card_images,
             output_dir + os.sep + "card.pdf",
-            dpi=DPI,
+            dpi=Application.DPI,
             card_long_side_mm=card_size_mm,
             width_mm=page_size_mm[0],
             height_mm=page_size_mm[1],
         )
 
         messagebox.showinfo("完了", f"{output_dir}にファイルが生成されました")
+
+    def _make_thumbnails(self):
+        # TODO: 実装
+        pass
 
 
 if __name__ == "__main__":
