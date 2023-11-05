@@ -12,8 +12,11 @@ from dobble_maker import (
     images_to_pdf,
     is_valid_n_symbols_per_card,
     layout_images_randomly_wo_overlap,
+    load_image_list,
     load_images,
     make_dobble_deck,
+    make_image_of_thumbnails_with_names,
+    sort_images_by_image_list,
 )
 
 
@@ -189,7 +192,7 @@ class Application(tk.Frame):
         self.check_thumb_group.append((image_list_file_button, tk.NORMAL))
         # * テーブルサイズ
         self.table_rows = tk.IntVar(value=7)
-        self.table_cols = tk.IntVar(value=5)
+        self.table_cols = tk.IntVar(value=6)
         table_rows_label = tk.Label(check_thumb_frame, text="行数")
         table_cols_label = tk.Label(check_thumb_frame, text="列数")
         table_rows_entry = tk.Spinbox(
@@ -212,6 +215,19 @@ class Application(tk.Frame):
         )
         self.check_thumb_group.append((table_rows_entry, "readonly"))
         self.check_thumb_group.append((table_cols_entry, "readonly"))
+        # * 最大文字高さの割合
+        self.text_h_rate = tk.DoubleVar(value=0.25)
+        text_h_rate_label = tk.Label(check_thumb_frame, text="画像内の最大文字高さ比")
+        text_h_rate_entry = tk.Spinbox(
+            check_thumb_frame,
+            state="readonly" if _i_state else tk.DISABLED,
+            width=6,
+            from_=0.01,
+            to=0.5,
+            increment=0.01,
+            textvariable=self.text_h_rate,
+        )
+        self.check_thumb_group.append((text_h_rate_entry, "readonly"))
         # * 余白調整パラメータ
         self.thumb_margin_p = tk.DoubleVar(value=0.05)
         thumb_margin_p_label = tk.Label(check_thumb_frame, text="シンボルサイズ調整値")
@@ -220,11 +236,11 @@ class Application(tk.Frame):
             state="readonly" if _i_state else tk.DISABLED,
             width=6,
             from_=0,
-            to=0.1,
+            to=0.2,
             increment=0.005,
             textvariable=self.thumb_margin_p,
         )
-        thumb_margin_p_desc = tk.Label(check_thumb_frame, text="値を大きくするとシンボルが小さくなり、カード端に描画されやすくなります")
+        thumb_margin_p_desc = tk.Label(check_thumb_frame, text="値を大きくするとシンボルが小さくなり、カード(円)端に描画されやすくなります")
         self.check_thumb_group.append((thumb_margin_p_entry, "readonly"))
         # * シンボル一覧のみ作成ボタン
         make_thumbs_button = tk.Button(
@@ -313,9 +329,12 @@ class Application(tk.Frame):
         table_cols_label.grid(row=fr_row, column=0, stick=tk.E)
         table_cols_entry.grid(row=fr_row, column=1, stick=tk.W)
         fr_row += 1
+        text_h_rate_label.grid(row=fr_row, column=0, stick=tk.E)
+        text_h_rate_entry.grid(row=fr_row, column=1, stick=tk.W)
+        fr_row += 1
         thumb_margin_p_label.grid(row=fr_row, column=0, stick=tk.E)
         thumb_margin_p_entry.grid(row=fr_row, column=1, stick=tk.W)
-        thumb_margin_p_desc.grid(row=fr_row, column=2, stick=tk.W)
+        thumb_margin_p_desc.grid(row=fr_row, column=2, stick=tk.W, columnspan=2)
         fr_row += 1
         make_thumbs_button.grid(row=fr_row, column=0, pady=5, columnspan=4)
         fr_row += 1
@@ -380,11 +399,11 @@ class Application(tk.Frame):
         for entry, state in self.check_thumb_group:
             entry.config(state=state if self.check_thumb.get() else tk.DISABLED)
 
-    def _run(self):
+    def _initialize(self) -> bool:
         err_msg = self._error_check_params()
         if err_msg != "":
             messagebox.showerror("エラー", err_msg)
-            return
+            return False
 
         # 各パラメータを取得
         _card_shape: Literal["円", "長方形"] = self.card_shape.get()
@@ -413,66 +432,138 @@ class Application(tk.Frame):
         if os.path.exists(output_dir) and len(os.listdir(output_dir)) != 0:
             yes = messagebox.askyesno("確認", "出力フォルダが空ではありません。同名のファイルは上書きされますが、よろしいですか？")
             if not yes:
-                return
+                return False
 
         # 出力ディレクトリ作成
         try:
             os.makedirs(output_dir, exist_ok=True)
         except Exception:
             messagebox.showerror("エラー", "出力フォルダの作成に失敗しました")
-            return
+            return False
 
         # 乱数初期化
         random.seed(seed)
         np.random.seed(seed)
 
+        # パラメータ設定
+        self._seed = seed
+        self._n_symbols_per_card = n_symbols_per_card
+        self._output_dir = output_dir
+        self._image_dir = image_dir
+        self._card_size_mm = card_size_mm
+        self._card_img_size = card_img_size
+        self._card_margin = card_margin
+        self._radius_p = radius_p
+        self._n_voronoi_iters = n_voronoi_iters
+        self._page_size_mm = page_size_mm
+
+        if self.check_thumb.get():
+            self._image_table_size = (self.table_rows.get(), self.table_cols.get())
+            self._thumb_margin = self.thumb_margin_p.get()
+            self._text_h_rate = self.text_h_rate.get()
+            self._image_list_file_path = self.image_list_file_path.get()
+
+        return True
+
+    def _run(self):
+        if not self._initialize():
+            return
+
         # 各カード毎の組み合わせを生成
-        pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
+        pairs, n_symbols = make_dobble_deck(self._n_symbols_per_card)
         # シンボルの組み合わせをcsvで保存
-        np.savetxt(os.path.join(output_dir, "pairs.csv"), np.array(pairs), fmt="%d", delimiter=",")
+        np.savetxt(os.path.join(self._output_dir, "pairs.csv"), np.array(pairs), fmt="%d", delimiter=",")
 
         # image_dirからn_symbols数の画像を取得
         try:
-            images, _ = load_images(image_dir, n_symbols, shuffle=self.shuffle.get())
+            images, image_paths = load_images(self._image_dir, n_symbols, shuffle=self.shuffle.get())
         except ValueError:
             messagebox.showerror("エラー", f"入力画像フォルダに{n_symbols}個以上の画像ファイル (jpg または png) が存在するか確認してください")
             return
 
         card_images = []
         for i, image_indexes in enumerate(pairs):
-            path = output_dir + os.sep + f"{i}.png"
+            path = self._output_dir + os.sep + f"{i}.png"
 
             card_img = layout_images_randomly_wo_overlap(
                 images,
                 image_indexes,
-                card_img_size,
-                card_margin,
+                self._card_img_size,
+                self._card_margin,
                 draw_frame=True,
                 method="voronoi",
-                radius_p=radius_p,
-                n_voronoi_iters=n_voronoi_iters,
+                radius_p=self._radius_p,
+                n_voronoi_iters=self._n_voronoi_iters,
             )
             cv2.imwrite(path, card_img)
 
             card_images.append(card_img)
 
-        # TODO: シンボル一覧画像 作成機能の実装
+        # シンボル一覧画像の作成
+        if self.check_thumb.get():
+            thumb_card_images = self._make_thumbnails_core(images, image_paths)
+            card_images.extend(thumb_card_images)
 
         # 各画像をA4 300 DPIに配置しPDF化
         images_to_pdf(
             card_images,
-            output_dir + os.sep + "card.pdf",
+            self._output_dir + os.sep + "card.pdf",
             dpi=Application.DPI,
-            card_long_side_mm=card_size_mm,
-            width_mm=page_size_mm[0],
-            height_mm=page_size_mm[1],
+            card_long_side_mm=self._card_size_mm,
+            width_mm=self._page_size_mm[0],
+            height_mm=self._page_size_mm[1],
         )
 
-        messagebox.showinfo("完了", f"{output_dir}にファイルが生成されました")
+        messagebox.showinfo("完了", f"{self._output_dir}にファイルが生成されました")
+
+    def _make_thumbnails_core(self, images: list[np.ndarray], image_paths: list[str]) -> list[np.ndarray]:
+        card_images: list[np.ndarray] = []
+
+        image_names = load_image_list(self._image_list_file_path)
+        sorted_images, sorted_names = sort_images_by_image_list(
+            images, image_paths, image_names
+        )  # image_namesの順序でimage_pathsをソート
+        thumbs_cards = make_image_of_thumbnails_with_names(
+            self._card_img_size,
+            self._card_margin,
+            self._image_table_size,
+            sorted_images,
+            sorted_names,
+            thumb_margin=self._thumb_margin,
+            text_h_rate=self._text_h_rate,
+            draw_frame=True,
+        )  # 画像をサムネイル化したカード画像を作成
+        for i, card in enumerate(thumbs_cards):
+            path = self._output_dir + os.sep + f"thumbnail_{i}.png"
+            cv2.imwrite(path, card)
+            card_images.append(card)
+
+        return card_images
 
     def _make_thumbnails(self):
-        # TODO: 実装
-        pass
+        if not self._initialize():
+            return
+
+        # 各カード毎の組み合わせを生成
+        _, n_symbols = make_dobble_deck(self._n_symbols_per_card)
+
+        # image_dirからn_symbols数の画像を取得
+        try:
+            images, image_paths = load_images(self._image_dir, n_symbols, shuffle=self.shuffle.get())
+        except ValueError:
+            messagebox.showerror("エラー", f"入力画像フォルダに{n_symbols}個以上の画像ファイル (jpg または png) が存在するか確認してください")
+            return
+
+        # カード作成
+        try:
+            _ = self._make_thumbnails_core(images, image_paths)
+        except Exception as e:
+            messagebox.showerror("エラー", e)
+            return
+
+        messagebox.showinfo("完了", f"{self._output_dir}にシンボル一覧画像が生成されました")
+
+        return
 
 
 if __name__ == "__main__":
