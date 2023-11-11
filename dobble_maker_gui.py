@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from dobble_maker import (
+    CARD_SHAPE,
     images_to_pdf,
     is_valid_n_symbols_per_card,
     layout_images_randomly_wo_overlap,
@@ -417,9 +418,11 @@ class Application(tk.Frame):
         # card_size_mm: カードの長辺サイズ[mm]
         # card_img_size: カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
         if _card_shape == "円":
+            card_shape = CARD_SHAPE.CIRCLE
             card_size_mm = self.card_width.get()
             card_img_size = int(card_size_mm * Application.PIX_PER_MM)
         else:
+            card_shape = CARD_SHAPE.RECTANGLE
             card_size_mm = max(self.card_width.get(), self.card_height.get())
             card_img_size = tuple(
                 int(x * Application.PIX_PER_MM) for x in (self.card_width.get(), self.card_height.get())
@@ -453,6 +456,7 @@ class Application(tk.Frame):
         self._card_size_mm = card_size_mm
         self._card_img_size = card_img_size
         self._card_margin = card_margin
+        self._card_shape = card_shape
         self._radius_p = radius_p
         self._n_voronoi_iters = n_voronoi_iters
         self._page_size_mm = page_size_mm
@@ -490,6 +494,7 @@ class Application(tk.Frame):
                 image_indexes,
                 self._card_img_size,
                 self._card_margin,
+                self._card_shape,
                 draw_frame=True,
                 method="voronoi",
                 radius_p=self._radius_p,
@@ -524,6 +529,7 @@ class Application(tk.Frame):
             images, image_paths, image_names
         )  # image_namesの順序でimage_pathsをソート
         thumbs_cards = make_image_of_thumbnails_with_names(
+            self._card_shape,
             self._card_img_size,
             self._card_margin,
             self._image_table_size,

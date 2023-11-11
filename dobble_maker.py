@@ -4,6 +4,7 @@ import math
 import os
 import random
 import tempfile
+from enum import Enum, auto
 from typing import Literal
 
 import chardet
@@ -21,6 +22,11 @@ from voronoi import cvt
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 OVERLAP_VAL = 127
+
+
+class CARD_SHAPE(Enum):
+    CIRCLE = auto()
+    RECTANGLE = auto()
 
 
 def is_prime(n: int) -> bool:
@@ -295,9 +301,9 @@ def rotate_fit(
     return img_rot
 
 
-def _make_canvas(is_circle: bool, width: int, height: int, margin: int) -> tuple[np.ndarray, np.ndarray]:
+def _make_canvas(shape: CARD_SHAPE, width: int, height: int, margin: int) -> tuple[np.ndarray, np.ndarray]:
     """空のキャンバスを作成"""
-    if is_circle:
+    if shape == CARD_SHAPE.CIRCLE:
         # 描画キャンバス
         canvas = np.full((height, width, 3), WHITE, dtype=np.uint8)
         # 重複確認用キャンバス
@@ -307,13 +313,15 @@ def _make_canvas(is_circle: bool, width: int, height: int, margin: int) -> tuple
         radius = int(width / 2) - margin
         cv2.circle(canvas, center, radius, BLACK, thickness=-1)
         cv2.circle(canv_ol, center, radius, 0, thickness=-1)
-    else:
+    elif shape == CARD_SHAPE.RECTANGLE:
         # 描画キャンバス
         canvas = np.zeros((height, width, 3), dtype=np.uint8)
         # 重複確認用キャンバス
         canv_ol = np.zeros((height, width), dtype=np.uint8)
         cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), WHITE, thickness=margin, lineType=cv2.LINE_4)
         cv2.rectangle(canv_ol, (0, 0), (width - 1, height - 1), OVERLAP_VAL, thickness=margin, lineType=cv2.LINE_4)
+    else:
+        raise NotImplementedError
 
     return canvas, canv_ol
 
@@ -327,12 +335,12 @@ def _get_interpolation(scale: float):
 
 
 def _layout_random(
-    is_circle: bool, width: int, height: int, margin: int, images: list[np.ndarray], show: bool
+    shape: CARD_SHAPE, width: int, height: int, margin: int, images: list[np.ndarray], show: bool
 ) -> np.ndarray:
     """画像を重ならないようにランダムに配置する
 
     Args:
-        is_circle (bool): 出力画像が円形か否か
+        shape (CARD_SHAPE): 出力画像の形
         width (int): 出力画像の幅
         height (int): 出力画像の高さ
         margin (int): 出力画像の外縁につける余白サイズ
@@ -346,7 +354,7 @@ def _layout_random(
     while True:
         # マスク画像に描画するパラメータ
         # キャンバスの作成
-        canvas, canv_ol = _make_canvas(is_circle, width, height, margin)
+        canvas, canv_ol = _make_canvas(shape, width, height, margin)
         for img in images:
             # 元画像の余白を除去して外接矩形でトリミング
             im_bin = np.full((img.shape[0], img.shape[1]), OVERLAP_VAL, dtype=np.uint8)
@@ -444,11 +452,11 @@ def _rotate_2d(pt: tuple[float, float], degree: float, *, org: tuple[float, floa
     return (rot_x + org[0], rot_y + org[1])
 
 
-def _make_drawing_region_in_card(is_circle: bool, width: int, height: int, margin: int) -> list[tuple[float, float]]:
+def _make_drawing_region_in_card(shape: CARD_SHAPE, width: int, height: int, margin: int) -> list[tuple[float, float]]:
     """カード内の描画範囲を取得
 
     Args:
-        is_circle (bool): True なら 円, False なら 長方形
+        shape (CARD_SHAPE): カードの形
         width (int): カードの幅
         height (int): カードの高さ (円なら無視)
         margin (int): カード外縁の余白
@@ -456,11 +464,11 @@ def _make_drawing_region_in_card(is_circle: bool, width: int, height: int, margi
     Returns:
         list[tulpe[float, float]]: 描画範囲を凸包表現した際の座標リスト
     """
-    if is_circle:
+    if shape == CARD_SHAPE.CIRCLE:
         c = width / 2
         r = width / 2 - margin
         bnd_pts = [(c + r * np.cos(x / 180.0 * np.pi), c + r * np.sin(x / 180.0 * np.pi)) for x in range(0, 360, 5)]
-    else:
+    elif shape == CARD_SHAPE.RECTANGLE:
         bnd_pts = [
             (margin, margin),
             (width - margin, margin),
@@ -468,12 +476,14 @@ def _make_drawing_region_in_card(is_circle: bool, width: int, height: int, margi
             (margin, height - margin),
         ]
         bnd_pts = [(float(x), float(y)) for x, y in bnd_pts]  # cast
+    else:
+        raise NotImplementedError
 
     return bnd_pts
 
 
 def _layout_voronoi(
-    is_circle: bool,
+    shape: CARD_SHAPE,
     width: int,
     height: int,
     margin: int,
@@ -486,19 +496,21 @@ def _layout_voronoi(
     """画像を重ならないように重心ボロノイ分割で決めた位置にランダムに配置する
 
     Args:
-        is_circle (bool): 出力画像が円形か否か
+        shape (CARD_SHAPE): 出力画像の形
         width (int): 出力画像の幅
-        height (int): 出力画像の高さ (is_circleならwidthと同じであること)
+        height (int): 出力画像の高さ (sahpe == CIRCLEならwidthと同じであること)
         margin (int): 出力画像の外縁につける余白サイズ
         images (list[np.ndarray]): 配置画像ソース
         show (bool): 計算中の画像を画面表示するならTrue
         radius_p: 各母点の半径を決めるパラメータ, 0.0なら通常のボロノイ分割
         n_iters (int): 重心ボロノイ分割の反復回数
     """
-    assert not is_circle or (is_circle and width == height)
+    if __debug__:
+        if shape == CARD_SHAPE.CIRCLE:
+            assert width == height
 
     # 各カードの配置位置と範囲を計算 (x, yで計算)
-    bnd_pts = _make_drawing_region_in_card(is_circle, width, height, margin)
+    bnd_pts = _make_drawing_region_in_card(shape, width, height, margin)
 
     # 重心ボロノイ分割で各画像の中心位置と範囲を取得
     # (範囲は目安であり変わっても良い)
@@ -523,7 +535,7 @@ def _layout_voronoi(
     # canvas_ol:
     #   重なりチェックをするためのマスク画像 (1ch),
     #   描画後に(0またはOVERLAP_VAL)以外の値があったら、その画素は重なりがあったことを意味する
-    canvas, canv_ol = _make_canvas(is_circle, width, height, margin)
+    canvas, canv_ol = _make_canvas(shape, width, height, margin)
 
     # 各画像をpos_imagesに配置
     for i_img, img in enumerate(images):
@@ -625,6 +637,7 @@ def layout_images_randomly_wo_overlap(
     image_indexes: list[int],
     canv_size: int | tuple[int, int],
     margin: int,
+    card_shape: CARD_SHAPE,
     *,
     method: Literal["random", "voronoi"] = "random",
     radius_p: float = 0.0,
@@ -638,7 +651,8 @@ def layout_images_randomly_wo_overlap(
         images (list[np.ndarray]): 画像リスト
         image_indexes (list[int]): 使用する画像のインデックスのリスト
         canv_size (Union[int, tuple[int, int]]):
-            配置先の画像サイズ. intなら円の直径、tuple[int, int]なら矩形の幅, 高さとする
+            配置先の画像サイズ.
+            card_shapeがCIRCLEならintで円の直径、RECTANGLEならtuple[int, int]で矩形の幅, 高さとする
         margin (int): 配置先の画像の外縁につける余白サイズ
         method: レイアウト方法
             "random": ランダム配置
@@ -654,18 +668,20 @@ def layout_images_randomly_wo_overlap(
     tar_images = [images[i] for i in image_indexes]
 
     # 出力先画像を初期化
-    is_circle: bool = False
-    if isinstance(canv_size, int):
+    if card_shape == CARD_SHAPE.CIRCLE:
+        assert isinstance(canv_size, int)
         width = height = canv_size
-        is_circle = True
-    else:
+    elif card_shape == CARD_SHAPE.RECTANGLE:
+        assert isinstance(canv_size, tuple) and len(canv_size) == 2
         width, height = canv_size
+    else:
+        raise NotImplementedError
 
     if method == "random":
-        canvas = _layout_random(is_circle, width, height, margin, tar_images, show)
+        canvas = _layout_random(card_shape, width, height, margin, tar_images, show)
     elif method == "voronoi":
         canvas = _layout_voronoi(
-            is_circle,
+            card_shape,
             width,
             height,
             margin,
@@ -679,12 +695,14 @@ def layout_images_randomly_wo_overlap(
 
     if draw_frame:
         gray = (127, 127, 127)
-        if is_circle:
+        if card_shape == CARD_SHAPE.CIRCLE:
             center = (int(height / 2), int(width / 2))
             radius = int(width / 2)
             cv2.circle(canvas, center, radius, gray, thickness=1)
-        else:
+        elif card_shape == CARD_SHAPE.RECTANGLE:
             cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), gray, thickness=1)
+        else:
+            raise NotImplementedError
 
     return canvas
 
@@ -749,7 +767,7 @@ def images_to_pdf(
         if pos_x + resize_w < width and pos_y + resize_h < height:
             # 収まるならキャンバスに貼り付け
             canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
-            pos_y_next = max(pos_y_next, pos_y + resize_h)
+            pos_y_next = pos_y + resize_h
             pos_x += resize_w
         else:
             # 収まらないなら改行してみる
@@ -758,6 +776,7 @@ def images_to_pdf(
             if pos_y + resize_h < height:
                 # 収まるなら貼り付け
                 canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
+                pos_y_next = pos_y + resize_h
                 pos_x += resize_w
             else:
                 # 収まらないならPDF出力してから次のキャンバスの先頭に描画
@@ -770,6 +789,7 @@ def images_to_pdf(
                 canvas = np.full((height, width, 3), 255, dtype=np.uint8)
                 pos_x = pos_y = pos_y_next = 0
                 canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
+                pos_y_next = pos_y + resize_h
                 pos_x += resize_w
 
                 i_pdf += 1
@@ -1023,6 +1043,7 @@ def _draw_name_in_thumb(
 
 
 def make_image_of_thumbnails_with_names(
+    card_shape: CARD_SHAPE,
     card_size: int | tuple[int, int],
     margin: int,
     table_size: tuple[int, int],
@@ -1038,9 +1059,9 @@ def make_image_of_thumbnails_with_names(
     """シンボル画像のサムネイルと名前を一覧するカード画像を作成
 
     Args:
-        is_circle (bool): 出力画像が円形か否か
-        width (int): 出力画像の幅
-        height (int): 出力画像の高さ (is_circleならwidthと同じであること)
+        card_shape (CARD_SHAPE): 出力画像の形
+        card_size: (int | tuple[int, int]):
+            出力画像のサイズ, card_shapeがCIRCLEならintで円の直径、RECTANGLEならtuple[int, int]で矩形の幅, 高さとする
         margin (int): 出力画像の外縁につける余白サイズ
         table_size (tuple[int, int]): サムネイルを表形式で並べる際の表の(行数, 列数)
         images (list[np.ndarray]): 配置画像ソース
@@ -1058,20 +1079,21 @@ def make_image_of_thumbnails_with_names(
         list[np.ndarray]:
             サムネイルを並べたカード画像のリスト
     """
-    if isinstance(card_size, int):
-        is_circle = True
+    if card_shape == CARD_SHAPE.CIRCLE:
+        assert isinstance(card_size, int)
         width = height = card_size
-    else:
+    elif card_shape == CARD_SHAPE.RECTANGLE:
         assert isinstance(card_size, tuple) and len(card_size) == 2
-        is_circle = False
         width, height = card_size
+    else:
+        raise NotImplementedError
 
-    assert not is_circle or (is_circle and width == height)
     assert len(images) == len(names)
     assert 0.0 <= thumb_margin < 0.5
 
-    # 円の場合、端にはシンボルを描画できないので少し小さめのサイズを描画範囲とする
-    table_scale = 0.98 if is_circle else 1.0
+    table_scale = 1.0
+    if card_shape == CARD_SHAPE.CIRCLE:
+        table_scale = 0.98  # 円の場合、端にはシンボルを描画できないので少し小さめのサイズを描画範囲とする
     table_x0 = margin + width * (1 - table_scale) / 2
     table_y0 = margin + height * (1 - table_scale) / 2
 
@@ -1108,7 +1130,7 @@ def make_image_of_thumbnails_with_names(
         ok = False
         while not ok:
             if canvas is None:
-                canvas, canvas_ov = _make_canvas(is_circle, width, height, margin)
+                canvas, canvas_ov = _make_canvas(card_shape, width, height, margin)
             # 描画位置に入るか確認
             try_canv_ov = np.copy(canvas_ov)
             x0 = table_x0 + pos_x * cell_w
@@ -1169,14 +1191,16 @@ def make_image_of_thumbnails_with_names(
     # 枠線を描画
     if draw_frame:
         gray = (127, 127, 127)
-        if is_circle:
+        if card_shape == CARD_SHAPE.CIRCLE:
             center = (int(height / 2), int(width / 2))
             radius = int(width / 2)
             for card in cards:
                 cv2.circle(card, center, radius, gray, thickness=1)
-        else:
+        elif card_shape == CARD_SHAPE.RECTANGLE:
             for card in cards:
                 cv2.rectangle(card, (0, 0), (width - 1, height - 1), gray, thickness=1)
+        else:
+            raise NotImplementedError
 
     if show:
         for i, card in enumerate(cards):
@@ -1332,6 +1356,7 @@ def main():
     pdf_name = "card.pdf"  # 出力するPDF名
     # カードの設定
     n_symbols_per_card: int = 5  # カード1枚当たりのシンボル数
+    card_shape: CARD_SHAPE = CARD_SHAPE.CIRCLE
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
     layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
@@ -1386,6 +1411,7 @@ def main():
                 image_indexes,
                 card_img_size,
                 card_margin,
+                card_shape,
                 draw_frame=True,
                 method=layout_method,
                 radius_p=radius_p,
@@ -1405,6 +1431,7 @@ def main():
             images, image_paths, image_names
         )  # image_namesの順序でimage_pathsをソート
         thumbs_cards = make_image_of_thumbnails_with_names(
+            card_shape,
             card_img_size,
             card_margin,
             image_table_size,
