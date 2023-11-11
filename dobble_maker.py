@@ -767,7 +767,7 @@ def images_to_pdf(
         if pos_x + resize_w < width and pos_y + resize_h < height:
             # 収まるならキャンバスに貼り付け
             canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
-            pos_y_next = max(pos_y_next, pos_y + resize_h)
+            pos_y_next = pos_y + resize_h
             pos_x += resize_w
         else:
             # 収まらないなら改行してみる
@@ -776,6 +776,7 @@ def images_to_pdf(
             if pos_y + resize_h < height:
                 # 収まるなら貼り付け
                 canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
+                pos_y_next = pos_y + resize_h
                 pos_x += resize_w
             else:
                 # 収まらないならPDF出力してから次のキャンバスの先頭に描画
@@ -788,6 +789,7 @@ def images_to_pdf(
                 canvas = np.full((height, width, 3), 255, dtype=np.uint8)
                 pos_x = pos_y = pos_y_next = 0
                 canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
+                pos_y_next = pos_y + resize_h
                 pos_x += resize_w
 
                 i_pdf += 1
