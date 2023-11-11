@@ -725,6 +725,31 @@ def merge_pdf(pdf_paths: list[str], output_pdf: str):
     merger.close()
 
 
+def centering_img(src: np.ndarray) -> np.ndarray:
+    """入力画像 src の画像領域を中心に配置した画像を返す"""
+    assert src.shape[2] == 3  # 3チャネルのカラー画像とする
+
+    gray_src = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+    _, bin_src = cv2.threshold(gray_src, 254, 255, cv2.THRESH_BINARY)
+    pos = np.where(bin_src == 0)
+    y0 = min(pos[0])
+    y1 = max(pos[0])
+    x0 = min(pos[1])
+    x1 = max(pos[1])
+    w = x1 - x0 + 1
+    h = y1 - y0 + 1
+    page_w = src.shape[1]
+    page_h = src.shape[0]
+
+    x = (page_w - w) // 2
+    y = (page_h - h) // 2
+
+    dst = np.ones_like(src) * 255
+    dst[y : (y + h), x : (x + w), :] = src[y0 : (y0 + h), x0 : (x0 + w), :]
+
+    return dst
+
+
 def images_to_pdf(
     images: list[np.ndarray],
     pdf_path: str,
@@ -733,6 +758,7 @@ def images_to_pdf(
     card_long_side_mm: int = 95,
     width_mm: int = 210,
     height_mm: int = 297,
+    centering: bool = True,
 ):
     """画像セットを並べてPDF化し保存
 
@@ -743,6 +769,7 @@ def images_to_pdf(
         card_width_mm (int, optional): 画像1枚の長辺サイズ(mm). Defaults to 95.
         width_mm (int, optional): PDFの幅(mm). Defaults to 210 (A4縦).
         height_mm (int, optional): PDFの高さ(mm). Defaults to 297 (A4縦).
+        centering (bool, optional): TrueならPDFの中心に画像を配置
     """
     tmpdir = tempfile.TemporaryDirectory()  # 一時フォルダ
 
@@ -782,7 +809,8 @@ def images_to_pdf(
                 # 収まらないならPDF出力してから次のキャンバスの先頭に描画
                 tmp_name = tmpdir.name + os.sep + f"{i_pdf}.png"
                 pdf_name = tmpdir.name + os.sep + f"{i_pdf}.pdf"
-                cv2.imwrite(tmp_name, canvas)
+                _out_img = centering_img(canvas) if centering else canvas
+                cv2.imwrite(tmp_name, _out_img)
                 with open(pdf_name, "wb") as f:
                     f.write(img2pdf.convert(tmp_name, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))))
 
@@ -798,7 +826,8 @@ def images_to_pdf(
     if (canvas != 255).any():
         tmp_name = tmpdir.name + os.sep + f"{i_pdf}.png"
         pdf_name = tmpdir.name + os.sep + f"{i_pdf}.pdf"
-        cv2.imwrite(tmp_name, canvas)
+        _out_img = centering_img(canvas) if centering else canvas
+        cv2.imwrite(tmp_name, _out_img)
         with open(pdf_name, "wb") as f:
             f.write(img2pdf.convert(tmp_name, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))))
 
