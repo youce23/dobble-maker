@@ -1382,6 +1382,7 @@ def main():
     n_symbols_per_card: int = 5  # カード1枚当たりのシンボル数
     card_shape: CARD_SHAPE = CARD_SHAPE.CIRCLE
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
+    card_margin = 20  # カード1枚の余白サイズ [pix]
     layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
     radius_p: float = 0.5  # "voronoi"における各母点の半径を決めるパラメータ (0.0なら半径なし, つまり通常のボロノイ分割として処理)
     n_voronoi_iters = 10  # "voronoi"における反復回数
