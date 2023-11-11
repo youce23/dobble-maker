@@ -728,6 +728,7 @@ def merge_pdf(pdf_paths: list[str], output_pdf: str):
 def images_to_pdf(
     images: list[np.ndarray],
     pdf_path: str,
+    card_shape: CARD_SHAPE,
     *,
     dpi: int = 300,
     card_long_side_mm: int = 95,
@@ -739,6 +740,7 @@ def images_to_pdf(
     Args:
         images (list[np.ndarray]): 画像セット, すべて画像サイズは同じとする
         pdf_path (str): 出力するPDFのフルパス
+        card_shape (CARD_SHAPE): カード画像の形
         dpi (int, optional): PDFの解像度. Defaults to 300.
         card_width_mm (int, optional): 画像1枚の長辺サイズ(mm). Defaults to 95.
         width_mm (int, optional): PDFの幅(mm). Defaults to 210 (A4縦).
@@ -753,6 +755,7 @@ def images_to_pdf(
     resize_card_long = int(card_long_side_mm * pix_per_mm)  # カードの長辺サイズ [pix]
 
     canvas = np.full((height, width, 3), 255, dtype=np.uint8)  # キャンバスの初期化
+    i_row = 0  # 描画中の行番号 (0-order)
     pos_x = pos_y = 0  # 描画位置
     pos_y_next = 0  # 次の描画位置
     i_pdf = 0  # PDFの番号
@@ -767,16 +770,32 @@ def images_to_pdf(
         if pos_x + resize_w < width and pos_y + resize_h < height:
             # 収まるならキャンバスに貼り付け
             canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
-            pos_y_next = pos_y + resize_h
+            if card_shape == CARD_SHAPE.CIRCLE:
+                pos_y_next = pos_y + int(resize_h * math.sqrt(3) / 2)  # 円の充填
+            elif card_shape == CARD_SHAPE.RECTANGLE:
+                pos_y_next = pos_y + resize_h
+            else:
+                raise NotImplementedError
             pos_x += resize_w
         else:
             # 収まらないなら改行してみる
-            pos_x = 0
+            i_row += 1
+            if card_shape == CARD_SHAPE.CIRCLE:
+                pos_x = (i_row % 2) * resize_w // 2
+            elif card_shape == CARD_SHAPE.RECTANGLE:
+                pos_x = 0
+            else:
+                raise NotImplementedError
             pos_y = pos_y_next
             if pos_y + resize_h < height:
                 # 収まるなら貼り付け
                 canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
-                pos_y_next = pos_y + resize_h
+                if card_shape == CARD_SHAPE.CIRCLE:
+                    pos_y_next = pos_y + int(resize_h * math.sqrt(3) / 2)  # 円の充填
+                elif card_shape == CARD_SHAPE.RECTANGLE:
+                    pos_y_next = pos_y + resize_h
+                else:
+                    raise NotImplementedError
                 pos_x += resize_w
             else:
                 # 収まらないならPDF出力してから次のキャンバスの先頭に描画
@@ -787,9 +806,14 @@ def images_to_pdf(
                     f.write(img2pdf.convert(tmp_name, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))))
 
                 canvas = np.full((height, width, 3), 255, dtype=np.uint8)
-                pos_x = pos_y = pos_y_next = 0
+                pos_x = pos_y = pos_y_next = i_row = 0
                 canvas[pos_y : (pos_y + resize_h), pos_x : (pos_x + resize_w), :] = resize_card
-                pos_y_next = pos_y + resize_h
+                if card_shape == CARD_SHAPE.CIRCLE:
+                    pos_y_next = pos_y + int(resize_h * math.sqrt(3) / 2)  # 円の充填
+                elif card_shape == CARD_SHAPE.RECTANGLE:
+                    pos_y_next = pos_y + resize_h
+                else:
+                    raise NotImplementedError
                 pos_x += resize_w
 
                 i_pdf += 1
@@ -1449,6 +1473,7 @@ def main():
     images_to_pdf(
         card_images,
         output_dir + os.sep + pdf_name,
+        card_shape,
         dpi=dpi,
         card_long_side_mm=card_size_mm,
         width_mm=page_size_mm[0],
