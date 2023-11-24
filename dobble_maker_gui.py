@@ -17,6 +17,7 @@ from dobble_maker import (
     load_images,
     make_dobble_deck,
     make_image_of_thumbnails_with_names,
+    save_card_list_to_csv,
     sort_images_by_image_list,
 )
 
@@ -475,8 +476,6 @@ class Application(tk.Frame):
 
         # 各カード毎の組み合わせを生成
         pairs, n_symbols = make_dobble_deck(self._n_symbols_per_card)
-        # シンボルの組み合わせをcsvで保存
-        np.savetxt(os.path.join(self._output_dir, "pairs.csv"), np.array(pairs), fmt="%d", delimiter=",")
 
         # image_dirからn_symbols数の画像を取得
         try:
@@ -505,9 +504,13 @@ class Application(tk.Frame):
             card_images.append(card_img)
 
         # シンボル一覧画像の作成
+        image_names = None
         if self.check_thumb.get():
-            thumb_card_images = self._make_thumbnails_core(images, image_paths)
+            thumb_card_images, image_names = self._make_thumbnails_core(images, image_paths)
             card_images.extend(thumb_card_images)
+
+        # カード、シンボル画像に関する情報をcsv出力
+        save_card_list_to_csv(self._output_dir, pairs, image_paths=image_paths, image_names=image_names)
 
         # 各画像をA4 300 DPIに配置しPDF化
         images_to_pdf(
@@ -521,7 +524,9 @@ class Application(tk.Frame):
 
         messagebox.showinfo("完了", f"{self._output_dir}にファイルが生成されました")
 
-    def _make_thumbnails_core(self, images: list[np.ndarray], image_paths: list[str]) -> list[np.ndarray]:
+    def _make_thumbnails_core(
+        self, images: list[np.ndarray], image_paths: list[str]
+    ) -> tuple[list[np.ndarray], dict[str, str]]:
         card_images: list[np.ndarray] = []
 
         image_names = load_image_list(self._image_list_file_path)
@@ -544,7 +549,7 @@ class Application(tk.Frame):
             cv2.imwrite(path, card)
             card_images.append(card)
 
-        return card_images
+        return card_images, image_names
 
     def _make_thumbnails(self):
         if not self._initialize():
