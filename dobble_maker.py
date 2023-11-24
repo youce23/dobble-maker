@@ -1401,12 +1401,12 @@ def save_card_list_to_csv(
         raise Exception("image_names 指定時は image_paths を必ず指定する")
 
     # 各カードのIDのcsv
-    _path = os.path.join(output_dir, "card_ids.csv")
+    _path = os.path.join(output_dir, "pairs.csv")
     np.savetxt(_path, pairs, delimiter=",", fmt="%d")
 
     # 使用された画像ファイル一覧のcsv
     if image_paths is not None:
-        _path = os.path.join(output_dir, "files.csv")
+        _path = os.path.join(output_dir, "images.csv")
         with open(_path, "w", encoding="utf_8_sig") as f:
             f.write("ID,画像ファイル")
             if image_names is not None:
