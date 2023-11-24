@@ -1403,28 +1403,34 @@ def save_card_list_to_csv(
 
     # 各カードのIDのcsv
     _path = os.path.join(output_dir, "pairs.csv")
-    np.savetxt(_path, pairs, delimiter=",", fmt="%d")
+    try:
+        np.savetxt(_path, pairs, delimiter=",", fmt="%d")
+    except Exception as e:
+        raise Exception(f"{_path} の保存に失敗") from e
 
     # 使用された画像ファイル一覧のcsv
     if image_paths is not None:
         _path = os.path.join(output_dir, "images.csv")
-        with open(_path, "w", encoding="utf_8_sig") as f:
-            # "画像名"には任意の文字が入る可能性があるためエスケープできるようにcsv.writerを使う
-            writer = csv.writer(f, lineterminator="\n")
+        try:
+            with open(_path, "w", encoding="utf_8_sig") as f:
+                # "画像名"には任意の文字が入る可能性があるためエスケープできるようにcsv.writerを使う
+                writer = csv.writer(f, lineterminator="\n")
 
-            header = ["ID", "画像ファイル"]
-            if image_names is not None:
-                header.append("画像名")
-            writer.writerow(header)
-
-            for i in range(len(image_paths)):
-                img_path = image_paths[i]
-                row = [str(i), img_path]
+                header = ["ID", "画像ファイル"]
                 if image_names is not None:
-                    img_base = os.path.splitext(os.path.basename(img_path))[0]
-                    img_name = image_names.get(img_base, "")
-                    row.append(img_name)
-                writer.writerow(row)
+                    header.append("画像名")
+                writer.writerow(header)
+
+                for i in range(len(image_paths)):
+                    img_path = image_paths[i]
+                    row = [str(i), img_path]
+                    if image_names is not None:
+                        img_base = os.path.splitext(os.path.basename(img_path))[0]
+                        img_name = image_names.get(img_base, "")
+                        row.append(img_name)
+                    writer.writerow(row)
+        except Exception as e:
+            raise Exception(f"{_path} の保存に失敗") from e
 
     # 各カードの画像名のcsv
     if image_paths is not None:
@@ -1436,9 +1442,12 @@ def save_card_list_to_csv(
 
         _path = os.path.join(output_dir, "card_names.csv")
         rows = [[id_to_name[id] for id in row] for row in pairs]
-        with open(_path, "w", encoding="utf_8_sig") as f:
-            writer = csv.writer(f, lineterminator="\n")
-            writer.writerows(rows)
+        try:
+            with open(_path, "w", encoding="utf_8_sig") as f:
+                writer = csv.writer(f, lineterminator="\n")
+                writer.writerows(rows)
+        except Exception as e:
+            raise Exception(f"{_path} の保存に失敗") from e
 
     return
 

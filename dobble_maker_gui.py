@@ -510,7 +510,11 @@ class Application(tk.Frame):
             card_images.extend(thumb_card_images)
 
         # カード、シンボル画像に関する情報をcsv出力
-        save_card_list_to_csv(self._output_dir, pairs, image_paths=image_paths, image_names=image_names)
+        try:
+            save_card_list_to_csv(self._output_dir, pairs, image_paths=image_paths, image_names=image_names)
+        except Exception as e:
+            messagebox.showerror("エラー", str(e))
+            return
 
         # 各画像をA4 300 DPIに配置しPDF化
         images_to_pdf(
