@@ -1375,6 +1375,83 @@ def sort_images_by_image_list(
     return sorted_images, sorted_names
 
 
+def save_card_list_to_csv(
+    output_dir: str,
+    pairs: list[list[int]],
+    *,
+    image_paths: list[str] | None = None,
+    image_names: dict[str, str] | None = None,
+):
+    """カード毎のID, 画像ファイル一覧, カード毎の画像ファイル, のcsvをそれぞれ出力
+
+    Args:
+        output_dir: 出力先ディレクトリ
+        pairs: 各カードに記載するシンボル番号
+        image_paths:
+            シンボル画像ファイルパス.
+            pairsのシンボル番号に対応するインデックスで格納されていること.
+        image_names:
+            シンボル画像名. image_pathsの拡張子を除くファイル名をキー、表示名をバリューとする.
+            指定時は必ず image_paths も指定すること.
+    """
+    if image_names is not None and image_paths is None:
+        raise Exception("image_names 指定時は image_paths を必ず指定する")
+
+    if image_names is not None:
+        # image_namesにある"\n"は改行ではなくそのまま文字列として出力できるように修正
+        image_names = {k: v.replace("\n", "\\n") for k, v in image_names.items()}
+
+    # 各カードのIDのcsv
+    _path = os.path.join(output_dir, "pairs.csv")
+    try:
+        np.savetxt(_path, pairs, delimiter=",", fmt="%d")
+    except Exception as e:
+        raise Exception(f"{_path} の保存に失敗") from e
+
+    # 使用された画像ファイル一覧のcsv
+    if image_paths is not None:
+        _path = os.path.join(output_dir, "images.csv")
+        try:
+            with open(_path, "w", encoding="utf_8_sig") as f:
+                # "画像名"には任意の文字が入る可能性があるためエスケープできるようにcsv.writerを使う
+                writer = csv.writer(f, lineterminator="\n")
+
+                header = ["ID", "画像ファイル"]
+                if image_names is not None:
+                    header.append("画像名")
+                writer.writerow(header)
+
+                for i in range(len(image_paths)):
+                    img_path = image_paths[i]
+                    row = [str(i), img_path]
+                    if image_names is not None:
+                        img_base = os.path.splitext(os.path.basename(img_path))[0]
+                        img_name = image_names.get(img_base, "")
+                        row.append(img_name)
+                    writer.writerow(row)
+        except Exception as e:
+            raise Exception(f"{_path} の保存に失敗") from e
+
+    # 各カードの画像名のcsv
+    if image_paths is not None:
+        id_to_base: dict[int, str] = {i: os.path.splitext(os.path.basename(x))[0] for i, x in enumerate(image_paths)}
+        if image_names is None:
+            id_to_name = id_to_base
+        else:
+            id_to_name: dict[int, str] = {i: image_names.get(name, "") for i, name in id_to_base.items()}
+
+        _path = os.path.join(output_dir, "card_names.csv")
+        rows = [[id_to_name[id] for id in row] for row in pairs]
+        try:
+            with open(_path, "w", encoding="utf_8_sig") as f:
+                writer = csv.writer(f, lineterminator="\n")
+                writer.writerows(rows)
+        except Exception as e:
+            raise Exception(f"{_path} の保存に失敗") from e
+
+    return
+
+
 def main():
     # ============
     # パラメータ設定
@@ -1454,6 +1531,7 @@ def main():
         card_images.append(card_img)
 
     # 画像リストファイルの指定があれば画像リストカード画像を作成
+    image_names: None | dict[str, str] = None
     if image_list_path is not None:
         image_names = load_image_list(image_list_path)
         sorted_images, sorted_names = sort_images_by_image_list(
@@ -1474,6 +1552,9 @@ def main():
             path = output_dir + os.sep + f"thumbnail_{i}.png"
             cv2.imwrite(path, card)
             card_images.append(card)
+
+    # カード、シンボル画像に関する情報をcsv出力
+    save_card_list_to_csv(output_dir, pairs, image_paths=image_paths, image_names=image_names)
 
     # 各画像をA4 300 DPIに配置しPDF化
     images_to_pdf(
