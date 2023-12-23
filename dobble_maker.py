@@ -656,7 +656,9 @@ def _layout_voronoi(
     if not ok:
         # ここでOKになっていないということは画像を限界まで小さくしてもボロノイ領域に収まらなかったことを意味するので例外とする
         raise LayoutSymbolImageError(
-            "ボロノイ領域内へのシンボル画像の描画に失敗 " f"(min_image_size_rate ({min_image_size_rate}) が大きすぎる可能性が高い)"
+            "ボロノイ領域内へのシンボル画像の描画に失敗 "
+            f"(min_image_size_rate ({min_image_size_rate}) を小さくする, "
+            "あるいはボロノイ領域がより大きくなるようなパラメータ調整が必要)"
         )
 
     if show:
@@ -723,6 +725,7 @@ def layout_images_randomly_wo_overlap(
         n = 0
         n_max = 20  # 最大チャレンジ回数
         while True:
+            print(f"** trial {n + 1} (max: {n_max})")
             try:
                 canvas = _layout_voronoi(
                     card_shape,
