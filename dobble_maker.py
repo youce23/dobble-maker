@@ -482,6 +482,16 @@ def _make_drawing_region_in_card(shape: CARD_SHAPE, width: int, height: int, mar
     return bnd_pts
 
 
+class VoronoiError(Exception):
+    # ボロノイ分割失敗の例外
+    pass
+
+
+class LayoutSymbolImageError(Exception):
+    # 画像をカード領域に描画するのに失敗
+    pass
+
+
 def _layout_voronoi(
     shape: CARD_SHAPE,
     width: int,
@@ -492,6 +502,8 @@ def _layout_voronoi(
     *,
     radius_p: float = 0.0,
     n_iters: int = 20,
+    min_image_size_rate: float = 0.0,
+    max_image_size_rate: float = 1.0,
 ) -> np.ndarray:
     """画像を重ならないように重心ボロノイ分割で決めた位置にランダムに配置する
 
@@ -504,10 +516,26 @@ def _layout_voronoi(
         show (bool): 計算中の画像を画面表示するならTrue
         radius_p: 各母点の半径を決めるパラメータ, 0.0なら通常のボロノイ分割
         n_iters (int): 重心ボロノイ分割の反復回数
+        min_image_size_rate (float): 画像長辺サイズの最小サイズ (max(width, height)に対する比, 0.0 以上 max_image_size_rate 未満)
+        max_image_size_rate (float): 画像長辺サイズの最大サイズ (max(width, height)に対する比, min_image_size_rate 以上 1.0 以下)
+
+    Raises:
+        VoronoiError:
+            ボロノイ分割の失敗.
+            初期値に依存するため何度か試せば動く可能性がある.
+            複数回試しても動かない場合は例外メッセージを参照.
+        LayoutSymbolImageError:
+            ボロノイ領域へのシンボル画像描画失敗.
+            生成されるボロノイ領域に影響を受けるため何度か試せば動く可能性がある.
+            複数回試しても動かない場合は例外メッセージを参照.
+
+    Returns:
+        描画結果の画像
     """
     if __debug__:
         if shape == CARD_SHAPE.CIRCLE:
             assert width == height
+    assert 0.0 <= min_image_size_rate < max_image_size_rate <= 1.0
 
     # 各カードの配置位置と範囲を計算 (x, yで計算)
     bnd_pts = _make_drawing_region_in_card(shape, width, height, margin)
@@ -515,18 +543,11 @@ def _layout_voronoi(
     # 重心ボロノイ分割で各画像の中心位置と範囲を取得
     # (範囲は目安であり変わっても良い)
     # NOTE: ここのshowは毎回止まってしまうのでデバッグ時に手動でTrueにする
-    repeat = True
-    n = 0
-    while repeat:
-        # radius_p を設定した場合に初期値によって例外が生じることがある(0.0指定時は生じたことはない)ので、その場合はやり直す
-        repeat = False
-        try:
-            pos_images, rgn_images = cvt(bnd_pts, len(images), radius_p=radius_p, n_iters=n_iters, show_step=None)
-        except Exception:
-            repeat = True
-        n += 1  # 繰り返し回数を設定
-        if n > 5:  # 一定回数以上試してもダメならパラメータ指定が良くないので例外を吐く
-            raise ValueError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)")
+    try:
+        pos_images, rgn_images = cvt(bnd_pts, len(images), radius_p=radius_p, n_iters=n_iters, show_step=None)
+    except Exception:
+        # radius_p を設定した場合に初期値によって例外が生じることがある(0.0指定時は生じたことはない)
+        raise VoronoiError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)")
 
     # キャンバスの作成
     # canvas:
@@ -552,11 +573,20 @@ def _layout_voronoi(
         init_deg = random.randint(0, 360)  # 初期角度をランダムに決める
 
         ok = False
-        scl = 100
-        while scl > 5:
+        scl = 100  # シンボル画像のスケール率 (%)
+        SCL_LIMIT = 5  # 縮小率の下限
+        SCL_DECREASE_RATE = 0.95  # シンボル画像のスケール率の減衰率
+        l_lngside = max(im_trim.shape[0], im_trim.shape[1])  # 元画像の長辺長
+        card_lngside = max(width, height)  # カードの長辺長
+        symbol_size_range = (min_image_size_rate * card_lngside, max_image_size_rate * card_lngside)
+        scl_l_lngside = l_lngside  # 初期値
+        while scl > SCL_LIMIT and symbol_size_range[0] <= scl_l_lngside:
             # 元画像の対角長とボロノイ領域の最大長が一致するスケールを100%としてスケールを計算
-            l_lngside = max(im_trim.shape[0], im_trim.shape[1])  # 元画像の長辺長
             scl_r = mx_len_rgn / l_lngside * (scl / 100)
+            scl_l_lngside = int(scl_r * l_lngside)
+            if scl_l_lngside > symbol_size_range[1]:
+                scl *= SCL_DECREASE_RATE
+                continue
             for deg in range(0, 180, 10):  # 画像を少しずつ回転 (矩形で試しているので180度までの確認で良い)
                 # 画像と同サイズの矩形をキャンバスに重畳描画
                 lt = _rotate_2d((-im_w * scl_r / 2, -im_h * scl_r / 2), deg + init_deg)
@@ -617,11 +647,16 @@ def _layout_voronoi(
             if ok:
                 break
 
-            scl *= 0.95  # 前回の大きさを基準に一定割合だけ縮小
+            scl *= SCL_DECREASE_RATE  # 前回の大きさを基準に一定割合だけ縮小
+
+        if not ok:
+            break
 
     if not ok:
         # ここでOKになっていないということは画像を限界まで小さくしてもボロノイ領域に収まらなかったことを意味するので例外とする
-        raise NotImplementedError("画像がボロノイ領域内に描画できずレイアウトに失敗")
+        raise LayoutSymbolImageError(
+            "ボロノイ領域内へのシンボル画像の描画に失敗 " f"(min_image_size_rate ({min_image_size_rate}) が大きすぎる可能性が高い)"
+        )
 
     if show:
         cv2.destroyAllWindows()
@@ -642,6 +677,8 @@ def layout_images_randomly_wo_overlap(
     method: Literal["random", "voronoi"] = "random",
     radius_p: float = 0.0,
     n_voronoi_iters: int = 20,
+    min_image_size_rate: float = 0.0,
+    max_image_size_rate: float = 1.0,
     draw_frame: bool = False,
     show: bool = False,
 ) -> np.ndarray:
@@ -658,6 +695,8 @@ def layout_images_randomly_wo_overlap(
             "random": ランダム配置
             "voronoi": 重心ボロノイ分割に基づき配置
         radius_p: methodが"voronoi"の場合に各母点の半径を決めるパラメータ, 0.0なら通常のボロノイ分割
+        min_image_size: methodが"voronoi"の場合に、各画像の長辺サイズが必ずこのサイズ以上となるようにする
+        max_image_size: methodが"voronoi"の場合に、各画像の長辺サイズが必ずこのサイズ未満となるようにする
         n_voronoi_iters: method == "voronoi"の場合の反復回数
         draw_frame (bool): 印刷を想定した枠を描画するならTrue
         show (bool): (optional) 計算中の画像を画面表示するならTrue
@@ -680,16 +719,28 @@ def layout_images_randomly_wo_overlap(
     if method == "random":
         canvas = _layout_random(card_shape, width, height, margin, tar_images, show)
     elif method == "voronoi":
-        canvas = _layout_voronoi(
-            card_shape,
-            width,
-            height,
-            margin,
-            tar_images,
-            show,
-            radius_p=radius_p,
-            n_iters=n_voronoi_iters,
-        )
+        n = 0
+        n_max = 20  # 最大チャレンジ回数
+        while True:
+            try:
+                canvas = _layout_voronoi(
+                    card_shape,
+                    width,
+                    height,
+                    margin,
+                    tar_images,
+                    show,
+                    radius_p=radius_p,
+                    n_iters=n_voronoi_iters,
+                    min_image_size_rate=min_image_size_rate,
+                    max_image_size_rate=max_image_size_rate,
+                )
+                break  # 例外が起こらなければそのまま終了
+            except (VoronoiError, LayoutSymbolImageError):
+                n += 1
+                if n >= n_max:
+                    raise  # ダメならそのまま例外を上げる
+
     else:
         raise ValueError(f"method ('{method}') の指定ミス")
 
@@ -1468,6 +1519,8 @@ def main():
     layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
     radius_p: float = 0.5  # "voronoi"における各母点の半径を決めるパラメータ (0.0なら半径なし, つまり通常のボロノイ分割として処理)
     n_voronoi_iters = 10  # "voronoi"における反復回数
+    min_image_size_rate: float = 0.1  # "voronoi"における最小画像サイズ (カードサイズ長辺に対する画像サイズ長辺の比)
+    max_image_size_rate: float = 0.5  # "voronoi"における最大画像サイズ (カードサイズ長辺に対する画像サイズ長辺の比)
     # PDFの設定
     dpi = 300  # 解像度
     card_size_mm = 95  # カードの長辺サイズ[mm]
@@ -1522,6 +1575,8 @@ def main():
                 method=layout_method,
                 radius_p=radius_p,
                 n_voronoi_iters=n_voronoi_iters,
+                min_image_size_rate=min_image_size_rate,
+                max_image_size_rate=max_image_size_rate,
             )
             cv2.imwrite(path, card_img)
         else:
