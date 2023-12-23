@@ -1,5 +1,6 @@
 import csv
 import glob
+import json
 import math
 import os
 import random
@@ -1511,6 +1512,7 @@ def main():
     image_dir = "samples"  # 入力画像ディレクトリ
     output_dir = "output"  # 出力画像ディレクトリ
     pdf_name = "card.pdf"  # 出力するPDF名
+    params_name = "parameters.json"  # 実行時のパラメータ値を出力するjson名
     # カードの設定
     n_symbols_per_card: int = 5  # カード1枚当たりのシンボル数
     card_shape: CARD_SHAPE = CARD_SHAPE.CIRCLE
@@ -1536,6 +1538,36 @@ def main():
     seed: int | None = 0  # 乱数種
     gen_card_images: bool = True  # (主にデバッグ用) もし output_dir にある生成済みの画像群を使うならFalse
 
+    # ======================
+    # 出力フォルダ作成
+    # ======================
+    os.makedirs(output_dir, exist_ok=True)
+
+    # ======================
+    # パラメータをjsonで出力
+    # ======================
+    params = {
+        "n_symbols_per_card": n_symbols_per_card,
+        "card_shape": card_shape.name,
+        "card_img_size": card_img_size,
+        "card_margin": card_margin,
+        "layout_method": layout_method,
+        "radius_p": radius_p,
+        "n_voronoi_iters": n_voronoi_iters,
+        "min_image_size_rate": min_image_size_rate,
+        "max_image_size_rate": max_image_size_rate,
+        "dpi": dpi,
+        "card_size_mm": card_size_mm,
+        "page_size_mm": page_size_mm,
+        "image_table_size": image_table_size,
+        "thumb_margin": thumb_margin,
+        "text_h_rate": text_h_rate,
+        "shuffle": shuffle,
+        "seed": seed,
+    }
+    with open(output_dir + os.sep + params_name, mode="w", encoding="utf_8") as f:
+        json.dump(params, f, indent=2, ensure_ascii=False)
+
     # ========
     # 前処理
     # ========
@@ -1555,9 +1587,6 @@ def main():
 
     # image_dirからn_symbols数の画像を取得
     images, image_paths = load_images(image_dir, n_symbols, shuffle=shuffle)
-
-    # 出力フォルダ作成
-    os.makedirs(output_dir, exist_ok=True)
 
     # len(pairs)枚のカード画像を作成し、保存
     card_images = []
