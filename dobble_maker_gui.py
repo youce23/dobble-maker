@@ -65,6 +65,14 @@ class Application(tk.Frame):
             return
         self.image_list_file_path.set(path)
 
+    def _limit_min_size_rate(self):
+        mx_r = self.max_size_rate.get()
+        self.min_size_rate_entry.configure(to=mx_r - 0.01)
+
+    def _limit_max_size_rate(self):
+        mn_r = self.min_size_rate.get()
+        self.max_size_rate_entry.configure(from_=mn_r + 0.01)
+
     def __init__(self, master=None):
         cur_dir = os.getcwd()
 
@@ -159,6 +167,33 @@ class Application(tk.Frame):
             self.master, state="readonly", width=6, from_=0, to=20, increment=1, textvariable=self.cvt_radius
         )
         cvt_radius_desc = tk.Label(self.master, text="大きいほどシンボルサイズに差が生じやすくなります")
+        # シンボルサイズの最小・最大サイズ
+        self.min_size_rate = tk.DoubleVar(value=0.0)
+        self.max_size_rate = tk.DoubleVar(value=1.0)
+        min_size_rate_label = tk.Label(self.master, text="シンボルの最小サイズ")
+        max_size_rate_label = tk.Label(self.master, text="シンボルの最大サイズ")
+        self.min_size_rate_entry = tk.Spinbox(
+            self.master,
+            state="readonly",
+            width=6,
+            from_=0.0,
+            to=1.0,
+            increment=0.01,
+            textvariable=self.min_size_rate,
+            command=self._limit_max_size_rate,
+        )  # 範囲を動的に変更するためにselfに持たせる
+        self.max_size_rate_entry = tk.Spinbox(
+            self.master,
+            state="readonly",
+            width=6,
+            from_=0.0,
+            to=1.0,
+            increment=0.01,
+            textvariable=self.max_size_rate,
+            command=self._limit_min_size_rate,
+        )  # 範囲を動的に変更するためにselfに持たせる
+        min_size_rate_desc = tk.Label(self.master, text="カードサイズ長辺に対するシンボルサイズ長辺の比")
+        max_size_rate_desc = tk.Label(self.master, text="カードサイズ長辺に対するシンボルサイズ長辺の比")
 
         # seed
         self.seed = tk.IntVar(value=0)
@@ -313,6 +348,14 @@ class Application(tk.Frame):
         cvt_radius_entry.grid(row=row, column=1, stick=tk.W)
         cvt_radius_desc.grid(row=row, column=2, stick=tk.W)
         row += 1
+        min_size_rate_label.grid(row=row, column=0, stick=tk.E)
+        self.min_size_rate_entry.grid(row=row, column=1, stick=tk.W)
+        min_size_rate_desc.grid(row=row, column=2, stick=tk.W)
+        row += 1
+        max_size_rate_label.grid(row=row, column=0, stick=tk.E)
+        self.max_size_rate_entry.grid(row=row, column=1, stick=tk.W)
+        max_size_rate_desc.grid(row=row, column=2, stick=tk.W)
+        row += 1
 
         seed_label.grid(row=row, column=0, stick=tk.W)
         seed_entry.grid(row=row, column=1, stick=tk.W)
@@ -415,6 +458,8 @@ class Application(tk.Frame):
         n_symbols_per_card = self.n_symbols.get()  # カード1枚当たりのシンボル数
         n_voronoi_iters = 2 * self.cvt_level.get()  # 重心ボロノイ分割の反復回数
         radius_p = self.cvt_radius.get() / 10  # 重心ボロノイ分割の母点の半径調整パラメータ
+        min_image_size_rate = self.min_size_rate.get()  # 最小シンボル画像サイズ (カード長辺に対するシンボル画像長辺の比)
+        max_image_size_rate = self.max_size_rate.get()  # 最大シンボル画像サイズ (カード長辺に対するシンボル画像長辺の比)
 
         # card_size_mm: カードの長辺サイズ[mm]
         # card_img_size: カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
@@ -460,6 +505,8 @@ class Application(tk.Frame):
         self._card_shape = card_shape
         self._radius_p = radius_p
         self._n_voronoi_iters = n_voronoi_iters
+        self._min_image_size_rate = min_image_size_rate
+        self._max_image_size_rate = max_image_size_rate
         self._page_size_mm = page_size_mm
 
         if self.check_thumb.get():
@@ -471,62 +518,63 @@ class Application(tk.Frame):
         return True
 
     def _run(self):
-        if not self._initialize():
-            return
-
-        # 各カード毎の組み合わせを生成
-        pairs, n_symbols = make_dobble_deck(self._n_symbols_per_card)
-
-        # image_dirからn_symbols数の画像を取得
         try:
-            images, image_paths = load_images(self._image_dir, n_symbols, shuffle=self.shuffle.get())
-        except ValueError:
-            messagebox.showerror("エラー", f"入力画像フォルダに{n_symbols}個以上の画像ファイル (jpg または png) が存在するか確認してください")
-            return
+            if not self._initialize():
+                return
 
-        card_images = []
-        for i, image_indexes in enumerate(pairs):
-            path = self._output_dir + os.sep + f"{i}.png"
+            # 各カード毎の組み合わせを生成
+            pairs, n_symbols = make_dobble_deck(self._n_symbols_per_card)
 
-            card_img = layout_images_randomly_wo_overlap(
-                images,
-                image_indexes,
-                self._card_img_size,
-                self._card_margin,
-                self._card_shape,
-                draw_frame=True,
-                method="voronoi",
-                radius_p=self._radius_p,
-                n_voronoi_iters=self._n_voronoi_iters,
-            )
-            cv2.imwrite(path, card_img)
+            # image_dirからn_symbols数の画像を取得
+            try:
+                images, image_paths = load_images(self._image_dir, n_symbols, shuffle=self.shuffle.get())
+            except ValueError:
+                messagebox.showerror("エラー", f"入力画像フォルダに{n_symbols}個以上の画像ファイル (jpg または png) が存在するか確認してください")
+                return
 
-            card_images.append(card_img)
+            card_images = []
+            for i, image_indexes in enumerate(pairs):
+                path = self._output_dir + os.sep + f"{i}.png"
 
-        # シンボル一覧画像の作成
-        image_names = None
-        if self.check_thumb.get():
-            thumb_card_images, image_names = self._make_thumbnails_core(images, image_paths)
-            card_images.extend(thumb_card_images)
+                card_img = layout_images_randomly_wo_overlap(
+                    images,
+                    image_indexes,
+                    self._card_img_size,
+                    self._card_margin,
+                    self._card_shape,
+                    draw_frame=True,
+                    method="voronoi",
+                    radius_p=self._radius_p,
+                    n_voronoi_iters=self._n_voronoi_iters,
+                    min_image_size_rate=self._min_image_size_rate,
+                    max_image_size_rate=self._max_image_size_rate,
+                )
+                cv2.imwrite(path, card_img)
 
-        # カード、シンボル画像に関する情報をcsv出力
-        try:
+                card_images.append(card_img)
+
+            # シンボル一覧画像の作成
+            image_names = None
+            if self.check_thumb.get():
+                thumb_card_images, image_names = self._make_thumbnails_core(images, image_paths)
+                card_images.extend(thumb_card_images)
+
+            # カード、シンボル画像に関する情報をcsv出力
             save_card_list_to_csv(self._output_dir, pairs, image_paths=image_paths, image_names=image_names)
+
+            # 各画像をA4 300 DPIに配置しPDF化
+            images_to_pdf(
+                card_images,
+                self._output_dir + os.sep + "card.pdf",
+                dpi=Application.DPI,
+                card_long_side_mm=self._card_size_mm,
+                width_mm=self._page_size_mm[0],
+                height_mm=self._page_size_mm[1],
+            )
+
+            messagebox.showinfo("完了", f"{self._output_dir}にファイルが生成されました")
         except Exception as e:
             messagebox.showerror("エラー", str(e))
-            return
-
-        # 各画像をA4 300 DPIに配置しPDF化
-        images_to_pdf(
-            card_images,
-            self._output_dir + os.sep + "card.pdf",
-            dpi=Application.DPI,
-            card_long_side_mm=self._card_size_mm,
-            width_mm=self._page_size_mm[0],
-            height_mm=self._page_size_mm[1],
-        )
-
-        messagebox.showinfo("完了", f"{self._output_dir}にファイルが生成されました")
 
     def _make_thumbnails_core(
         self, images: list[np.ndarray], image_paths: list[str]
