@@ -7,6 +7,8 @@ rmdir /s /q samples release
 mkdir release
 git checkout samples
 
+xcopy /y /i README.md release
+xcopy /y /i readme_images release\readme_images
 xcopy /y /i LICENSE release
 xcopy /y /s /i .\build\exe.win-amd64-3.11\* release
 xcopy /y /i samples release\samples
