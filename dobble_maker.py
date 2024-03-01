@@ -330,8 +330,8 @@ def _make_canvas(shape: CARD_SHAPE, width: int, height: int, margin: int) -> tup
         # 重複確認用キャンバス
         canv_ol = np.full((height, width), OVERLAP_VAL, dtype=np.uint8)
 
-        center = (int(height / 2), int(width / 2))
-        radius = int(width / 2) - margin
+        center = (height // 2, width // 2)
+        radius = width // 2 - margin
         cv2.circle(canvas, center, radius, BLACK, thickness=-1)
         cv2.circle(canv_ol, center, radius, 0, thickness=-1)
     elif shape == CARD_SHAPE.RECTANGLE:
@@ -767,8 +767,8 @@ def layout_images_randomly_wo_overlap(
     if draw_frame:
         gray = (127, 127, 127)
         if card_shape == CARD_SHAPE.CIRCLE:
-            center = (int(height / 2), int(width / 2))
-            radius = int(width / 2)
+            center = (height // 2, width // 2)
+            radius = width // 2
             cv2.circle(canvas, center, radius, gray, thickness=1)
         elif card_shape == CARD_SHAPE.RECTANGLE:
             cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), gray, thickness=1)
@@ -1142,6 +1142,98 @@ def _draw_name_in_thumb(
     return canv
 
 
+def _judge_to_draw_thumb_in_card(
+    canvas_ov: np.ndarray,
+    table_x0: int | float,
+    table_y0: int | float,
+    pos_x: int,
+    pos_y: int,
+    cell_w: int | float,
+    cell_h: int | float,
+    margin_thumb_w: int | float,
+    margin_thumb_h: int | float,
+    thumb_w: int,
+    thumb_h: int,
+    *,
+    show: bool = False,
+    show_wait_ms: int = 0,
+) -> tuple[tuple[int, int], np.ndarray] | None:
+    """カード画像の指定位置にサムネイル画像が描画可能か確認
+
+    描画できるなら描画位置と確認用のマスク画像（描画済み）を返す
+
+    Args:
+        canvas_ov (np.ndarray): 確認用のマスク画像
+        table_x0 (int | float): 全サムネイルを表形式で描画する表の左上座標
+        table_y0 (int | float): 全サムネイルを表形式で描画する表の左上座標
+        pos_x (int): 表内のx方向インデックス
+        pos_y (int): 表内のy方向インデックス
+        cell_w (int | float): 表のセル幅
+        cell_h (int | float): 表のセル高さ
+        margin_thumb_w (int | float): セル内の縁の余白サイズ
+        margin_thumb_h (int | float): セル内の縁の余白サイズ
+        thumb_w (int): サムネイル画像サイズ, thumb_w + margin_thumb_w <= cell_w であること
+        thumb_h (int): サムネイル画像サイズ, thumb_h + margin_thumb_h <= cell_h であること
+        show (bool, optional): _description_. Defaults to False.
+        show_wait_ms (int, optional): _description_. Defaults to 0.
+
+    Returns:
+        tuple[tuple[int, int], np.ndarray] | None:
+            - 指定位置にサムネイルを描画できないならNone
+            - 描画できるなら (描画位置座標 x, y), 更新後のマスク画像
+    """
+    assert thumb_w + margin_thumb_w <= cell_w
+    assert thumb_h + margin_thumb_h <= cell_h
+
+    # 試しに描画
+    try_canv_ov = np.copy(canvas_ov)
+    x0 = table_x0 + pos_x * cell_w
+    y0 = table_y0 + pos_y * cell_h
+    x0_m = int(x0 + margin_thumb_w)
+    y0_m = int(y0 + margin_thumb_h)
+    try_canv_ov[
+        y0_m : (y0_m + thumb_h),
+        x0_m : (x0_m + thumb_w),
+    ] += OVERLAP_VAL
+
+    if show:
+        cv2.imshow("canvas_ov", canvas_ov)
+        cv2.imshow("try", try_canv_ov)
+        cv2.waitKey(show_wait_ms)
+
+    # 端がギリギリで入りにくいので、適当に重なりを許容
+    n_ov_pixs = (try_canv_ov > OVERLAP_VAL).sum() - (canvas_ov > OVERLAP_VAL).sum()
+
+    # マスク画像内で重なりが無ければ描画成功
+    if n_ov_pixs <= max(thumb_w, thumb_h):
+        return ((x0_m, y0_m), try_canv_ov)
+    else:
+        return None
+
+
+def _draw_frame_of_card(width: int, height: int, card_shape: CARD_SHAPE, card: np.ndarray):
+    """カードの枠線を描画 (cardsが更新される)
+
+    Args:
+        width (int): カードサイズ
+        height (int): カードサイズ
+        card_shape (CARD_SHAPE): カードの形状
+        cards (np.ndarray): カード画像 (更新される)
+
+    Raises:
+        NotImplementedError: _description_
+    """
+    gray = (127, 127, 127)
+    if card_shape == CARD_SHAPE.CIRCLE:
+        center = (height // 2, width // 2)
+        radius = width // 2
+        cv2.circle(card, center, radius, gray, thickness=1)
+    elif card_shape == CARD_SHAPE.RECTANGLE:
+        cv2.rectangle(card, (0, 0), (width - 1, height - 1), gray, thickness=1)
+    else:
+        raise NotImplementedError
+
+
 def make_image_of_thumbnails_with_names(
     card_shape: CARD_SHAPE,
     card_size: int | tuple[int, int],
@@ -1201,14 +1293,15 @@ def make_image_of_thumbnails_with_names(
     cell_w = table_scale * (width - 2 * margin) / table_size[1]
     cell_h = table_scale * (height - 2 * margin) / table_size[0]
 
-    # サムネイルのサイズを計算
-    _thumb_w = cell_w - 2 * thumb_margin * cell_w
-    _thumb_h = cell_h - 2 * thumb_margin * cell_h
+    # 描画可能なサムネイル領域のサイズを計算
+    _thumb_w_f = cell_w - 2 * thumb_margin * cell_w
+    _thumb_h_f = cell_h - 2 * thumb_margin * cell_h
+    thumb_w = int(_thumb_w_f)
+    thumb_h = int(_thumb_h_f)
 
-    margin_thumb_w = (cell_w - _thumb_w) / 2
-    margin_thumb_h = (cell_h - _thumb_h) / 2
-    thumb_w = int(_thumb_w)
-    thumb_h = int(_thumb_h)
+    # セルサイズとサムネイル領域サイズの差 (＝余白) サイズを計算
+    margin_thumb_w = (cell_w - _thumb_w_f) / 2
+    margin_thumb_h = (cell_h - _thumb_h_f) / 2
 
     # 各画像 + テキストをレンダリングした画像を生成
     thumbs: list[np.ndarray] = []
@@ -1224,48 +1317,49 @@ def make_image_of_thumbnails_with_names(
     cards: list[np.ndarray] = []
 
     canvas = None
+    canvas_ov = None
     pos_x = pos_y = 0  # 描画位置
     cnt_img_in_card = 0  # カードに描画された画像数 (エラーチェック用に使う)
     for thumb_img in thumbs:
-        ok = False
+        ok = False  # thumb_imgがカードに描画できたか否かを管理するフラグ
+        # 対象のサムネイル画像を描画できる場所をカード内のセル位置を更新しながら探索
         while not ok:
             if canvas is None:
                 canvas, canvas_ov = _make_canvas(card_shape, width, height, margin)
+
             # 描画位置に入るか確認
-            try_canv_ov = np.copy(canvas_ov)
-            x0 = table_x0 + pos_x * cell_w
-            y0 = table_y0 + pos_y * cell_h
-            x0_m = int(x0 + margin_thumb_w)
-            y0_m = int(y0 + margin_thumb_h)
-            try_canv_ov[
-                y0_m : (y0_m + thumb_h),
-                x0_m : (x0_m + thumb_w),
-            ] += OVERLAP_VAL
-
-            if show:
-                cv2.imshow("canvas", canvas)
-                cv2.imshow("canvas_ov", canvas_ov)
-                cv2.imshow("try", try_canv_ov)
-                cv2.waitKey(show_wait_ms)
-
-            # 端がギリギリで入りにくいので、適当に重なりを許容
-            n_ov_pixs = (try_canv_ov > OVERLAP_VAL).sum() - (canvas_ov > OVERLAP_VAL).sum()
-            if n_ov_pixs <= max(thumb_w, thumb_h):
+            assert canvas_ov is not None
+            ret = _judge_to_draw_thumb_in_card(
+                canvas_ov,
+                table_x0,
+                table_y0,
+                pos_x,
+                pos_y,
+                cell_w,
+                cell_h,
+                margin_thumb_w,
+                margin_thumb_h,
+                thumb_w,
+                thumb_h,
+                show=show,
+                show_wait_ms=show_wait_ms,
+            )
+            if ret is not None:
                 # 描画可能なので描画
-                canvas_ov = try_canv_ov
+                (x0_m, y0_m), canvas_ov = ret  # 描画先座標, 更新後のマスク画像
                 canvas[
                     y0_m : (y0_m + thumb_h),
                     x0_m : (x0_m + thumb_w),
                     :,
                 ] = thumb_img
-                ok = True
-                cnt_img_in_card += 1
+                ok = True  # 描画成功のフラグ更新
+                cnt_img_in_card += 1  # カード内のサムネイル数を更新
 
-                if show:
-                    cv2.imshow("canvas", canvas)
-                    cv2.waitKey(show_wait_ms)
+            if show:
+                cv2.imshow("canvas", canvas)
+                cv2.waitKey(show_wait_ms)
 
-            # 描画できてもできなくても次の位置へ
+            # 描画先のセル位置を更新
             pos_x += 1
             if pos_x >= table_size[1]:
                 pos_x = 0
@@ -1290,17 +1384,8 @@ def make_image_of_thumbnails_with_names(
 
     # 枠線を描画
     if draw_frame:
-        gray = (127, 127, 127)
-        if card_shape == CARD_SHAPE.CIRCLE:
-            center = (int(height / 2), int(width / 2))
-            radius = int(width / 2)
-            for card in cards:
-                cv2.circle(card, center, radius, gray, thickness=1)
-        elif card_shape == CARD_SHAPE.RECTANGLE:
-            for card in cards:
-                cv2.rectangle(card, (0, 0), (width - 1, height - 1), gray, thickness=1)
-        else:
-            raise NotImplementedError
+        for card in cards:
+            _draw_frame_of_card(width, height, card_shape, card)
 
     if show:
         for i, card in enumerate(cards):
