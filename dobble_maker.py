@@ -395,13 +395,17 @@ def _layout_random(
                 _canv = cur_canv.copy()
                 _canv_ol = cur_canv_ol.copy()
                 # ランダムにリサイズ
-                scale = random.uniform(0.5, 0.8)  # NOTE: 小さめの方が敷き詰めるのに時間がかからないが余白が増えるので適宜調整
+                scale = random.uniform(
+                    0.5, 0.8
+                )  # NOTE: 小さめの方が敷き詰めるのに時間がかからないが余白が増えるので適宜調整
                 _im_scl = cv2.resize(im_base, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
                 _im_bin_scl = cv2.resize(im_bin_base, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
 
                 # ランダムに回転
                 angle = random.randint(0, 360)
-                _im_rot = rotate_fit(_im_scl, angle, flags=cv2.INTER_CUBIC, borderValue=WHITE)  # 境界を白にしないと枠が残る
+                _im_rot = rotate_fit(
+                    _im_scl, angle, flags=cv2.INTER_CUBIC, borderValue=WHITE
+                )  # 境界を白にしないと枠が残る
                 _im_bin_rot = rotate_fit(_im_bin_scl, angle, flags=cv2.INTER_NEAREST)
 
                 # ランダムに平行移動
@@ -619,7 +623,9 @@ def _layout_voronoi(
                 # ボロノイ境界を超えない制約をつけるために境界線を描画
                 # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
                 # 参考: https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
-                _canv_ol = canv_ol.copy()  # ボロノイ境界はmarginなど他のマスクと重なることがあるので、重畳ではなくOVERLAP_VALの描画にする
+                _canv_ol = (
+                    canv_ol.copy()
+                )  # ボロノイ境界はmarginなど他のマスクと重なることがあるので、重畳ではなくOVERLAP_VALの描画にする
                 _pts = np.array(rgn).reshape((-1, 1, 2)).astype(np.int32)
                 cv2.polylines(_canv_ol, [_pts], True, OVERLAP_VAL, thickness=1, lineType=cv2.LINE_4)
 
@@ -1531,8 +1537,12 @@ def main():
     card_shape: CARD_SHAPE = CARD_SHAPE.CIRCLE
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
-    layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
-    radius_p: float = 0.5  # "voronoi"における各母点の半径を決めるパラメータ (0.0なら半径なし, つまり通常のボロノイ分割として処理)
+    layout_method: Literal["random", "voronoi"] = (
+        "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
+    )
+    radius_p: float = (
+        0.5  # "voronoi"における各母点の半径を決めるパラメータ (0.0なら半径なし, つまり通常のボロノイ分割として処理)
+    )
     n_voronoi_iters = 10  # "voronoi"における反復回数
     min_image_size_rate: float = 0.1  # "voronoi"における最小画像サイズ (カードサイズ長辺に対する画像サイズ長辺の比)
     max_image_size_rate: float = 0.5  # "voronoi"における最大画像サイズ (カードサイズ長辺に対する画像サイズ長辺の比)
@@ -1586,7 +1596,9 @@ def main():
     # ========
     # 入力チェック
     if not is_valid_n_symbols_per_card(n_symbols_per_card):
-        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「2 あるいは (任意の素数の累乗 + 1)」ではない")
+        raise ValueError(
+            f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「2 あるいは (任意の素数の累乗 + 1)」ではない"
+        )
 
     # 乱数初期化
     random.seed(seed)
