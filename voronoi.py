@@ -1,4 +1,4 @@
-from typing import Literal, cast
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np

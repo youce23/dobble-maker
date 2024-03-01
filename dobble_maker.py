@@ -30,6 +30,26 @@ class CARD_SHAPE(Enum):
     RECTANGLE = auto()
 
 
+class VoronoiError(Exception):
+    # ボロノイ分割失敗の例外
+    pass
+
+
+class LayoutSymbolImageError(Exception):
+    # 画像をカード領域に描画するのに失敗
+    pass
+
+
+class FileFormatError(Exception):
+    # ファイルフォーマットに関するエラー
+    pass
+
+
+class DrawTextError(Exception):
+    # テキスト描画に関するエラー
+    pass
+
+
 def is_prime(n: int) -> bool:
     """素数判定
 
@@ -310,8 +330,8 @@ def _make_canvas(shape: CARD_SHAPE, width: int, height: int, margin: int) -> tup
         # 重複確認用キャンバス
         canv_ol = np.full((height, width), OVERLAP_VAL, dtype=np.uint8)
 
-        center = (int(height / 2), int(width / 2))
-        radius = int(width / 2) - margin
+        center = (height // 2, width // 2)
+        radius = width // 2 - margin
         cv2.circle(canvas, center, radius, BLACK, thickness=-1)
         cv2.circle(canv_ol, center, radius, 0, thickness=-1)
     elif shape == CARD_SHAPE.RECTANGLE:
@@ -375,13 +395,17 @@ def _layout_random(
                 _canv = cur_canv.copy()
                 _canv_ol = cur_canv_ol.copy()
                 # ランダムにリサイズ
-                scale = random.uniform(0.5, 0.8)  # NOTE: 小さめの方が敷き詰めるのに時間がかからないが余白が増えるので適宜調整
+                scale = random.uniform(
+                    0.5, 0.8
+                )  # NOTE: 小さめの方が敷き詰めるのに時間がかからないが余白が増えるので適宜調整
                 _im_scl = cv2.resize(im_base, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
                 _im_bin_scl = cv2.resize(im_bin_base, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
 
                 # ランダムに回転
                 angle = random.randint(0, 360)
-                _im_rot = rotate_fit(_im_scl, angle, flags=cv2.INTER_CUBIC, borderValue=WHITE)  # 境界を白にしないと枠が残る
+                _im_rot = rotate_fit(
+                    _im_scl, angle, flags=cv2.INTER_CUBIC, borderValue=WHITE
+                )  # 境界を白にしないと枠が残る
                 _im_bin_rot = rotate_fit(_im_bin_scl, angle, flags=cv2.INTER_NEAREST)
 
                 # ランダムに平行移動
@@ -483,16 +507,6 @@ def _make_drawing_region_in_card(shape: CARD_SHAPE, width: int, height: int, mar
     return bnd_pts
 
 
-class VoronoiError(Exception):
-    # ボロノイ分割失敗の例外
-    pass
-
-
-class LayoutSymbolImageError(Exception):
-    # 画像をカード領域に描画するのに失敗
-    pass
-
-
 def _layout_voronoi(
     shape: CARD_SHAPE,
     width: int,
@@ -546,9 +560,9 @@ def _layout_voronoi(
     # NOTE: ここのshowは毎回止まってしまうのでデバッグ時に手動でTrueにする
     try:
         pos_images, rgn_images = cvt(bnd_pts, len(images), radius_p=radius_p, n_iters=n_iters, show_step=None)
-    except Exception:
+    except Exception as e:
         # radius_p を設定した場合に初期値によって例外が生じることがある(0.0指定時は生じたことはない)
-        raise VoronoiError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)")
+        raise VoronoiError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)") from e
 
     # キャンバスの作成
     # canvas:
@@ -609,7 +623,9 @@ def _layout_voronoi(
                 # ボロノイ境界を超えない制約をつけるために境界線を描画
                 # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
                 # 参考: https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
-                _canv_ol = canv_ol.copy()  # ボロノイ境界はmarginなど他のマスクと重なることがあるので、重畳ではなくOVERLAP_VALの描画にする
+                _canv_ol = (
+                    canv_ol.copy()
+                )  # ボロノイ境界はmarginなど他のマスクと重なることがあるので、重畳ではなくOVERLAP_VALの描画にする
                 _pts = np.array(rgn).reshape((-1, 1, 2)).astype(np.int32)
                 cv2.polylines(_canv_ol, [_pts], True, OVERLAP_VAL, thickness=1, lineType=cv2.LINE_4)
 
@@ -751,8 +767,8 @@ def layout_images_randomly_wo_overlap(
     if draw_frame:
         gray = (127, 127, 127)
         if card_shape == CARD_SHAPE.CIRCLE:
-            center = (int(height / 2), int(width / 2))
-            radius = int(width / 2)
+            center = (height // 2, width // 2)
+            radius = width // 2
             cv2.circle(canvas, center, radius, gray, thickness=1)
         elif card_shape == CARD_SHAPE.RECTANGLE:
             cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), gray, thickness=1)
@@ -1126,6 +1142,98 @@ def _draw_name_in_thumb(
     return canv
 
 
+def _judge_to_draw_thumb_in_card(
+    canvas_ov: np.ndarray,
+    table_x0: int | float,
+    table_y0: int | float,
+    pos_x: int,
+    pos_y: int,
+    cell_w: int | float,
+    cell_h: int | float,
+    margin_thumb_w: int | float,
+    margin_thumb_h: int | float,
+    thumb_w: int,
+    thumb_h: int,
+    *,
+    show: bool = False,
+    show_wait_ms: int = 0,
+) -> tuple[tuple[int, int], np.ndarray] | None:
+    """カード画像の指定位置にサムネイル画像が描画可能か確認
+
+    描画できるなら描画位置と確認用のマスク画像（描画済み）を返す
+
+    Args:
+        canvas_ov (np.ndarray): 確認用のマスク画像
+        table_x0 (int | float): 全サムネイルを表形式で描画する表の左上座標
+        table_y0 (int | float): 全サムネイルを表形式で描画する表の左上座標
+        pos_x (int): 表内のx方向インデックス
+        pos_y (int): 表内のy方向インデックス
+        cell_w (int | float): 表のセル幅
+        cell_h (int | float): 表のセル高さ
+        margin_thumb_w (int | float): セル内の縁の余白サイズ
+        margin_thumb_h (int | float): セル内の縁の余白サイズ
+        thumb_w (int): サムネイル画像サイズ, thumb_w + margin_thumb_w <= cell_w であること
+        thumb_h (int): サムネイル画像サイズ, thumb_h + margin_thumb_h <= cell_h であること
+        show (bool, optional): _description_. Defaults to False.
+        show_wait_ms (int, optional): _description_. Defaults to 0.
+
+    Returns:
+        tuple[tuple[int, int], np.ndarray] | None:
+            - 指定位置にサムネイルを描画できないならNone
+            - 描画できるなら (描画位置座標 x, y), 更新後のマスク画像
+    """
+    assert thumb_w + margin_thumb_w <= cell_w
+    assert thumb_h + margin_thumb_h <= cell_h
+
+    # 試しに描画
+    try_canv_ov = np.copy(canvas_ov)
+    x0 = table_x0 + pos_x * cell_w
+    y0 = table_y0 + pos_y * cell_h
+    x0_m = int(x0 + margin_thumb_w)
+    y0_m = int(y0 + margin_thumb_h)
+    try_canv_ov[
+        y0_m : (y0_m + thumb_h),
+        x0_m : (x0_m + thumb_w),
+    ] += OVERLAP_VAL
+
+    if show:
+        cv2.imshow("canvas_ov", canvas_ov)
+        cv2.imshow("try", try_canv_ov)
+        cv2.waitKey(show_wait_ms)
+
+    # 端がギリギリで入りにくいので、適当に重なりを許容
+    n_ov_pixs = (try_canv_ov > OVERLAP_VAL).sum() - (canvas_ov > OVERLAP_VAL).sum()
+
+    # マスク画像内で重なりが無ければ描画成功
+    if n_ov_pixs <= max(thumb_w, thumb_h):
+        return ((x0_m, y0_m), try_canv_ov)
+    else:
+        return None
+
+
+def _draw_frame_of_card(width: int, height: int, card_shape: CARD_SHAPE, card: np.ndarray):
+    """カードの枠線を描画 (cardsが更新される)
+
+    Args:
+        width (int): カードサイズ
+        height (int): カードサイズ
+        card_shape (CARD_SHAPE): カードの形状
+        cards (np.ndarray): カード画像 (更新される)
+
+    Raises:
+        NotImplementedError: _description_
+    """
+    gray = (127, 127, 127)
+    if card_shape == CARD_SHAPE.CIRCLE:
+        center = (height // 2, width // 2)
+        radius = width // 2
+        cv2.circle(card, center, radius, gray, thickness=1)
+    elif card_shape == CARD_SHAPE.RECTANGLE:
+        cv2.rectangle(card, (0, 0), (width - 1, height - 1), gray, thickness=1)
+    else:
+        raise NotImplementedError
+
+
 def make_image_of_thumbnails_with_names(
     card_shape: CARD_SHAPE,
     card_size: int | tuple[int, int],
@@ -1185,22 +1293,23 @@ def make_image_of_thumbnails_with_names(
     cell_w = table_scale * (width - 2 * margin) / table_size[1]
     cell_h = table_scale * (height - 2 * margin) / table_size[0]
 
-    # サムネイルのサイズを計算
-    _thumb_w = cell_w - 2 * thumb_margin * cell_w
-    _thumb_h = cell_h - 2 * thumb_margin * cell_h
+    # 描画可能なサムネイル領域のサイズを計算
+    _thumb_w_f = cell_w - 2 * thumb_margin * cell_w
+    _thumb_h_f = cell_h - 2 * thumb_margin * cell_h
+    thumb_w = int(_thumb_w_f)
+    thumb_h = int(_thumb_h_f)
 
-    margin_thumb_w = (cell_w - _thumb_w) / 2
-    margin_thumb_h = (cell_h - _thumb_h) / 2
-    thumb_w = int(_thumb_w)
-    thumb_h = int(_thumb_h)
+    # セルサイズとサムネイル領域サイズの差 (＝余白) サイズを計算
+    margin_thumb_w = (cell_w - _thumb_w_f) / 2
+    margin_thumb_h = (cell_h - _thumb_h_f) / 2
 
     # 各画像 + テキストをレンダリングした画像を生成
     thumbs: list[np.ndarray] = []
     for symbl_img, symbl_name in zip(images, names):
         try:
             thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=text_h_rate)
-        except Exception:
-            raise Exception("サムネイルにテキストを描画できない")
+        except Exception as e:
+            raise DrawTextError("サムネイルにテキストを描画できない") from e
 
         thumbs.append(thumb)
 
@@ -1208,48 +1317,49 @@ def make_image_of_thumbnails_with_names(
     cards: list[np.ndarray] = []
 
     canvas = None
+    canvas_ov = None
     pos_x = pos_y = 0  # 描画位置
     cnt_img_in_card = 0  # カードに描画された画像数 (エラーチェック用に使う)
     for thumb_img in thumbs:
-        ok = False
+        ok = False  # thumb_imgがカードに描画できたか否かを管理するフラグ
+        # 対象のサムネイル画像を描画できる場所をカード内のセル位置を更新しながら探索
         while not ok:
             if canvas is None:
                 canvas, canvas_ov = _make_canvas(card_shape, width, height, margin)
+
             # 描画位置に入るか確認
-            try_canv_ov = np.copy(canvas_ov)
-            x0 = table_x0 + pos_x * cell_w
-            y0 = table_y0 + pos_y * cell_h
-            x0_m = int(x0 + margin_thumb_w)
-            y0_m = int(y0 + margin_thumb_h)
-            try_canv_ov[
-                y0_m : (y0_m + thumb_h),
-                x0_m : (x0_m + thumb_w),
-            ] += OVERLAP_VAL
-
-            if show:
-                cv2.imshow("canvas", canvas)
-                cv2.imshow("canvas_ov", canvas_ov)
-                cv2.imshow("try", try_canv_ov)
-                cv2.waitKey(show_wait_ms)
-
-            # 端がギリギリで入りにくいので、適当に重なりを許容
-            n_ov_pixs = (try_canv_ov > OVERLAP_VAL).sum() - (canvas_ov > OVERLAP_VAL).sum()
-            if n_ov_pixs <= max(thumb_w, thumb_h):
+            assert canvas_ov is not None
+            ret = _judge_to_draw_thumb_in_card(
+                canvas_ov,
+                table_x0,
+                table_y0,
+                pos_x,
+                pos_y,
+                cell_w,
+                cell_h,
+                margin_thumb_w,
+                margin_thumb_h,
+                thumb_w,
+                thumb_h,
+                show=show,
+                show_wait_ms=show_wait_ms,
+            )
+            if ret is not None:
                 # 描画可能なので描画
-                canvas_ov = try_canv_ov
+                (x0_m, y0_m), canvas_ov = ret  # 描画先座標, 更新後のマスク画像
                 canvas[
                     y0_m : (y0_m + thumb_h),
                     x0_m : (x0_m + thumb_w),
                     :,
                 ] = thumb_img
-                ok = True
-                cnt_img_in_card += 1
+                ok = True  # 描画成功のフラグ更新
+                cnt_img_in_card += 1  # カード内のサムネイル数を更新
 
-                if show:
-                    cv2.imshow("canvas", canvas)
-                    cv2.waitKey(show_wait_ms)
+            if show:
+                cv2.imshow("canvas", canvas)
+                cv2.waitKey(show_wait_ms)
 
-            # 描画できてもできなくても次の位置へ
+            # 描画先のセル位置を更新
             pos_x += 1
             if pos_x >= table_size[1]:
                 pos_x = 0
@@ -1274,17 +1384,8 @@ def make_image_of_thumbnails_with_names(
 
     # 枠線を描画
     if draw_frame:
-        gray = (127, 127, 127)
-        if card_shape == CARD_SHAPE.CIRCLE:
-            center = (int(height / 2), int(width / 2))
-            radius = int(width / 2)
-            for card in cards:
-                cv2.circle(card, center, radius, gray, thickness=1)
-        elif card_shape == CARD_SHAPE.RECTANGLE:
-            for card in cards:
-                cv2.rectangle(card, (0, 0), (width - 1, height - 1), gray, thickness=1)
-        else:
-            raise NotImplementedError
+        for card in cards:
+            _draw_frame_of_card(width, height, card_shape, card)
 
     if show:
         for i, card in enumerate(cards):
@@ -1342,9 +1443,9 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
 
         # 両方がそろっていなければファイルのフォーマットエラー
         if file_name_index is None:
-            raise Exception(f"'{image_list_path}'に'ファイル名'列が存在しない")
+            raise FileFormatError(f"'{image_list_path}'に'ファイル名'列が存在しない")
         elif name_index is None:
-            raise Exception(f"'{image_list_path}'に'名前'列が存在しない")
+            raise FileFormatError(f"'{image_list_path}'に'名前'列が存在しない")
 
         # データを取得
         for row in sheet.iter_rows(values_only=True, min_row=2):  # 先頭行は除く
@@ -1368,9 +1469,9 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
                 file_name = row.get("ファイル名")
                 name = row.get("名前")
                 if file_name is None:
-                    raise Exception(f"{image_list_path}に'ファイル名'列が存在しない")
+                    raise FileFormatError(f"{image_list_path}に'ファイル名'列が存在しない")
                 elif name is None:
-                    raise Exception(f"{image_list_path}に'名前'列が存在しない")
+                    raise FileFormatError(f"{image_list_path}に'名前'列が存在しない")
 
                 if file_name is not None and name is not None:
                     data_list[file_name] = name
@@ -1380,11 +1481,11 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
     # 空は許容しない
     for file_name, name in data_list.items():
         if file_name == "" and name != "":
-            raise Exception(f"'{image_list_path}'の'{name}'のファイル名が空")
+            raise FileFormatError(f"'{image_list_path}'の'{name}'のファイル名が空")
         elif file_name != "" and name == "":
-            raise Exception(f"'{image_list_path}'の'{file_name}'の名前が空")
+            raise FileFormatError(f"'{image_list_path}'の'{file_name}'の名前が空")
         elif file_name == "" and name == "":
-            raise Exception(f"'{image_list_path}'のファイル名, 名前が空の行がある")
+            raise FileFormatError(f"'{image_list_path}'のファイル名, 名前が空の行がある")
 
     # "名前"列の改行文字変換
     data_list = {key: val.replace("\\n", "\n") for key, val in data_list.items()}
@@ -1450,7 +1551,7 @@ def save_card_list_to_csv(
             指定時は必ず image_paths も指定すること.
     """
     if image_names is not None and image_paths is None:
-        raise Exception("image_names 指定時は image_paths を必ず指定する")
+        raise ValueError("image_names 指定時は image_paths を必ず指定する")
 
     if image_names is not None:
         # image_namesにある"\n"は改行ではなくそのまま文字列として出力できるように修正
@@ -1461,7 +1562,7 @@ def save_card_list_to_csv(
     try:
         np.savetxt(_path, pairs, delimiter=",", fmt="%d")
     except Exception as e:
-        raise Exception(f"{_path} の保存に失敗") from e
+        raise type(e)(f"{_path} の保存に失敗") from e
 
     # 使用された画像ファイル一覧のcsv
     if image_paths is not None:
@@ -1485,7 +1586,7 @@ def save_card_list_to_csv(
                         row.append(img_name)
                     writer.writerow(row)
         except Exception as e:
-            raise Exception(f"{_path} の保存に失敗") from e
+            raise type(e)(f"{_path} の保存に失敗") from e
 
     # 各カードの画像名のcsv
     if image_paths is not None:
@@ -1502,7 +1603,7 @@ def save_card_list_to_csv(
                 writer = csv.writer(f, lineterminator="\n")
                 writer.writerows(rows)
         except Exception as e:
-            raise Exception(f"{_path} の保存に失敗") from e
+            raise type(e)(f"{_path} の保存に失敗") from e
 
     return
 
@@ -1521,8 +1622,12 @@ def main():
     card_shape: CARD_SHAPE = CARD_SHAPE.CIRCLE
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
-    layout_method: Literal["random", "voronoi"] = "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
-    radius_p: float = 0.5  # "voronoi"における各母点の半径を決めるパラメータ (0.0なら半径なし, つまり通常のボロノイ分割として処理)
+    layout_method: Literal["random", "voronoi"] = (
+        "voronoi"  # random: ランダム配置, voronoi: 重心ボロノイ分割に基づき配置
+    )
+    radius_p: float = (
+        0.5  # "voronoi"における各母点の半径を決めるパラメータ (0.0なら半径なし, つまり通常のボロノイ分割として処理)
+    )
     n_voronoi_iters = 10  # "voronoi"における反復回数
     min_image_size_rate: float = 0.1  # "voronoi"における最小画像サイズ (カードサイズ長辺に対する画像サイズ長辺の比)
     max_image_size_rate: float = 0.5  # "voronoi"における最大画像サイズ (カードサイズ長辺に対する画像サイズ長辺の比)
@@ -1576,7 +1681,9 @@ def main():
     # ========
     # 入力チェック
     if not is_valid_n_symbols_per_card(n_symbols_per_card):
-        raise ValueError(f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「2 あるいは (任意の素数の累乗 + 1)」ではない")
+        raise ValueError(
+            f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「2 あるいは (任意の素数の累乗 + 1)」ではない"
+        )
 
     # 乱数初期化
     random.seed(seed)
