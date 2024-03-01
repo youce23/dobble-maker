@@ -30,6 +30,26 @@ class CARD_SHAPE(Enum):
     RECTANGLE = auto()
 
 
+class VoronoiError(Exception):
+    # ボロノイ分割失敗の例外
+    pass
+
+
+class LayoutSymbolImageError(Exception):
+    # 画像をカード領域に描画するのに失敗
+    pass
+
+
+class FileFormatError(Exception):
+    # ファイルフォーマットに関するエラー
+    pass
+
+
+class DrawTextError(Exception):
+    # テキスト描画に関するエラー
+    pass
+
+
 def is_prime(n: int) -> bool:
     """素数判定
 
@@ -483,16 +503,6 @@ def _make_drawing_region_in_card(shape: CARD_SHAPE, width: int, height: int, mar
     return bnd_pts
 
 
-class VoronoiError(Exception):
-    # ボロノイ分割失敗の例外
-    pass
-
-
-class LayoutSymbolImageError(Exception):
-    # 画像をカード領域に描画するのに失敗
-    pass
-
-
 def _layout_voronoi(
     shape: CARD_SHAPE,
     width: int,
@@ -546,9 +556,9 @@ def _layout_voronoi(
     # NOTE: ここのshowは毎回止まってしまうのでデバッグ時に手動でTrueにする
     try:
         pos_images, rgn_images = cvt(bnd_pts, len(images), radius_p=radius_p, n_iters=n_iters, show_step=None)
-    except Exception:
+    except Exception as e:
         # radius_p を設定した場合に初期値によって例外が生じることがある(0.0指定時は生じたことはない)
-        raise VoronoiError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)")
+        raise VoronoiError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)") from e
 
     # キャンバスの作成
     # canvas:
@@ -1199,8 +1209,8 @@ def make_image_of_thumbnails_with_names(
     for symbl_img, symbl_name in zip(images, names):
         try:
             thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=text_h_rate)
-        except Exception:
-            raise Exception("サムネイルにテキストを描画できない")
+        except Exception as e:
+            raise DrawTextError("サムネイルにテキストを描画できない") from e
 
         thumbs.append(thumb)
 
@@ -1342,9 +1352,9 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
 
         # 両方がそろっていなければファイルのフォーマットエラー
         if file_name_index is None:
-            raise Exception(f"'{image_list_path}'に'ファイル名'列が存在しない")
+            raise FileFormatError(f"'{image_list_path}'に'ファイル名'列が存在しない")
         elif name_index is None:
-            raise Exception(f"'{image_list_path}'に'名前'列が存在しない")
+            raise FileFormatError(f"'{image_list_path}'に'名前'列が存在しない")
 
         # データを取得
         for row in sheet.iter_rows(values_only=True, min_row=2):  # 先頭行は除く
@@ -1368,9 +1378,9 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
                 file_name = row.get("ファイル名")
                 name = row.get("名前")
                 if file_name is None:
-                    raise Exception(f"{image_list_path}に'ファイル名'列が存在しない")
+                    raise FileFormatError(f"{image_list_path}に'ファイル名'列が存在しない")
                 elif name is None:
-                    raise Exception(f"{image_list_path}に'名前'列が存在しない")
+                    raise FileFormatError(f"{image_list_path}に'名前'列が存在しない")
 
                 if file_name is not None and name is not None:
                     data_list[file_name] = name
@@ -1380,11 +1390,11 @@ def load_image_list(image_list_path: str) -> dict[str, str]:
     # 空は許容しない
     for file_name, name in data_list.items():
         if file_name == "" and name != "":
-            raise Exception(f"'{image_list_path}'の'{name}'のファイル名が空")
+            raise FileFormatError(f"'{image_list_path}'の'{name}'のファイル名が空")
         elif file_name != "" and name == "":
-            raise Exception(f"'{image_list_path}'の'{file_name}'の名前が空")
+            raise FileFormatError(f"'{image_list_path}'の'{file_name}'の名前が空")
         elif file_name == "" and name == "":
-            raise Exception(f"'{image_list_path}'のファイル名, 名前が空の行がある")
+            raise FileFormatError(f"'{image_list_path}'のファイル名, 名前が空の行がある")
 
     # "名前"列の改行文字変換
     data_list = {key: val.replace("\\n", "\n") for key, val in data_list.items()}
@@ -1450,7 +1460,7 @@ def save_card_list_to_csv(
             指定時は必ず image_paths も指定すること.
     """
     if image_names is not None and image_paths is None:
-        raise Exception("image_names 指定時は image_paths を必ず指定する")
+        raise ValueError("image_names 指定時は image_paths を必ず指定する")
 
     if image_names is not None:
         # image_namesにある"\n"は改行ではなくそのまま文字列として出力できるように修正
@@ -1461,7 +1471,7 @@ def save_card_list_to_csv(
     try:
         np.savetxt(_path, pairs, delimiter=",", fmt="%d")
     except Exception as e:
-        raise Exception(f"{_path} の保存に失敗") from e
+        raise type(e)(f"{_path} の保存に失敗") from e
 
     # 使用された画像ファイル一覧のcsv
     if image_paths is not None:
@@ -1485,7 +1495,7 @@ def save_card_list_to_csv(
                         row.append(img_name)
                     writer.writerow(row)
         except Exception as e:
-            raise Exception(f"{_path} の保存に失敗") from e
+            raise type(e)(f"{_path} の保存に失敗") from e
 
     # 各カードの画像名のcsv
     if image_paths is not None:
@@ -1502,7 +1512,7 @@ def save_card_list_to_csv(
                 writer = csv.writer(f, lineterminator="\n")
                 writer.writerows(rows)
         except Exception as e:
-            raise Exception(f"{_path} の保存に失敗") from e
+            raise type(e)(f"{_path} の保存に失敗") from e
 
     return
 
