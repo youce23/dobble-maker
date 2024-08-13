@@ -5,9 +5,9 @@ import tkinter.ttk as ttk
 from tkinter import filedialog, messagebox
 from typing import Literal
 
-import cv2
 import numpy as np
 
+from cv2_image_utils import imwrite_japanese
 from dobble_maker import (
     CARD_SHAPE,
     images_to_pdf,
@@ -44,7 +44,9 @@ class Application(tk.Frame):
         dir = self.output_dir.get()
         if not os.path.exists(dir):
             dir = os.getcwd()
-        dir_name = filedialog.askdirectory(initialdir=dir, mustexist=False)  # NOTE: Windows環境では mustexist=False が効かなかった
+        dir_name = filedialog.askdirectory(
+            initialdir=dir, mustexist=False
+        )  # NOTE: Windows環境では mustexist=False が効かなかった
         if dir_name == "":  # キャンセル押下時
             return
         self.output_dir.set(dir_name)
@@ -204,7 +206,9 @@ class Application(tk.Frame):
         check_thumb_frame = tk.LabelFrame(self.master, text="label frame")
         # * チェックボックス (ラベルフレームの制御)
         _i_state = True  # チェックボックスの初期値
-        self.check_thumb_group: list[tuple[tk.Entry, str]] = []  # チェックボックスで有効/無効を切り替える(要素, 有効時のstate)を入れる
+        self.check_thumb_group: list[tuple[tk.Entry, str]] = (
+            []
+        )  # チェックボックスで有効/無効を切り替える(要素, 有効時のstate)を入れる
         self.check_thumb = tk.BooleanVar(value=_i_state)
         check_thumb_entry = tk.Checkbutton(
             self.master, text="シンボル一覧を作成", variable=self.check_thumb, command=self._change_state_by_check_thumb
@@ -277,7 +281,9 @@ class Application(tk.Frame):
             increment=0.005,
             textvariable=self.thumb_margin_p,
         )
-        thumb_margin_p_desc = tk.Label(check_thumb_frame, text="値を大きくするとシンボルが小さくなり、カード(円)端に描画されやすくなります")
+        thumb_margin_p_desc = tk.Label(
+            check_thumb_frame, text="値を大きくするとシンボルが小さくなり、カード(円)端に描画されやすくなります"
+        )
         self.check_thumb_group.append((thumb_margin_p_entry, "readonly"))
         # * シンボル一覧のみ作成ボタン
         make_thumbs_button = tk.Button(
@@ -458,8 +464,12 @@ class Application(tk.Frame):
         n_symbols_per_card = self.n_symbols.get()  # カード1枚当たりのシンボル数
         n_voronoi_iters = 2 * self.cvt_level.get()  # 重心ボロノイ分割の反復回数
         radius_p = self.cvt_radius.get() / 10  # 重心ボロノイ分割の母点の半径調整パラメータ
-        min_image_size_rate = self.min_size_rate.get()  # 最小シンボル画像サイズ (カード長辺に対するシンボル画像長辺の比)
-        max_image_size_rate = self.max_size_rate.get()  # 最大シンボル画像サイズ (カード長辺に対するシンボル画像長辺の比)
+        min_image_size_rate = (
+            self.min_size_rate.get()
+        )  # 最小シンボル画像サイズ (カード長辺に対するシンボル画像長辺の比)
+        max_image_size_rate = (
+            self.max_size_rate.get()
+        )  # 最大シンボル画像サイズ (カード長辺に対するシンボル画像長辺の比)
 
         # card_size_mm: カードの長辺サイズ[mm]
         # card_img_size: カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
@@ -479,7 +489,9 @@ class Application(tk.Frame):
 
         # 出力ディレクトリの確認
         if os.path.exists(output_dir) and len(os.listdir(output_dir)) != 0:
-            yes = messagebox.askyesno("確認", "出力フォルダが空ではありません。同名のファイルは上書きされますが、よろしいですか？")
+            yes = messagebox.askyesno(
+                "確認", "出力フォルダが空ではありません。同名のファイルは上書きされますが、よろしいですか？"
+            )
             if not yes:
                 return False
 
@@ -529,7 +541,10 @@ class Application(tk.Frame):
             try:
                 images, image_paths = load_images(self._image_dir, n_symbols, shuffle=self.shuffle.get())
             except ValueError:
-                messagebox.showerror("エラー", f"入力画像フォルダに{n_symbols}個以上の画像ファイル (jpg または png) が存在するか確認してください")
+                messagebox.showerror(
+                    "エラー",
+                    f"入力画像フォルダに{n_symbols}個以上の画像ファイル (jpg または png) が存在するか確認してください",
+                )
                 return
 
             card_images = []
@@ -549,7 +564,7 @@ class Application(tk.Frame):
                     min_image_size_rate=self._min_image_size_rate,
                     max_image_size_rate=self._max_image_size_rate,
                 )
-                cv2.imwrite(path, card_img)
+                imwrite_japanese(path, card_img)
 
                 card_images.append(card_img)
 
@@ -598,7 +613,7 @@ class Application(tk.Frame):
         )  # 画像をサムネイル化したカード画像を作成
         for i, card in enumerate(thumbs_cards):
             path = self._output_dir + os.sep + f"thumbnail_{i}.png"
-            cv2.imwrite(path, card)
+            imwrite_japanese(path, card)
             card_images.append(card)
 
         return card_images, image_names
@@ -614,7 +629,10 @@ class Application(tk.Frame):
         try:
             images, image_paths = load_images(self._image_dir, n_symbols, shuffle=self.shuffle.get())
         except ValueError:
-            messagebox.showerror("エラー", f"入力画像フォルダに{n_symbols}個以上の画像ファイル (jpg または png) が存在するか確認してください")
+            messagebox.showerror(
+                "エラー",
+                f"入力画像フォルダに{n_symbols}個以上の画像ファイル (jpg または png) が存在するか確認してください",
+            )
             return
 
         # カード作成

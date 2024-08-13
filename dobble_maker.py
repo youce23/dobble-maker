@@ -18,6 +18,7 @@ import pypdf
 import tqdm
 from PIL import Image, ImageDraw, ImageFont
 
+from cv2_image_utils import imread_japanese, imwrite_japanese
 from voronoi import cvt
 
 BLACK = (0, 0, 0)
@@ -251,7 +252,7 @@ def load_images(
     image_paths: list[str] = []
 
     for path, _ in files:
-        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+        img = imread_japanese(path, cv2.IMREAD_UNCHANGED)
         if img is None:
             raise IOError(f"{path} の読み込み失敗")
         h, w, n_ch = img.shape
@@ -881,7 +882,7 @@ def images_to_pdf(
                 tmp_name = tmpdir.name + os.sep + f"{i_pdf}.png"
                 pdf_name = tmpdir.name + os.sep + f"{i_pdf}.pdf"
                 _out_img = centering_img(canvas) if centering else canvas
-                cv2.imwrite(tmp_name, _out_img)
+                imwrite_japanese(tmp_name, _out_img)
                 with open(pdf_name, "wb") as f:
                     f.write(img2pdf.convert(tmp_name, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))))
 
@@ -898,7 +899,7 @@ def images_to_pdf(
         tmp_name = tmpdir.name + os.sep + f"{i_pdf}.png"
         pdf_name = tmpdir.name + os.sep + f"{i_pdf}.pdf"
         _out_img = centering_img(canvas) if centering else canvas
-        cv2.imwrite(tmp_name, _out_img)
+        imwrite_japanese(tmp_name, _out_img)
         with open(pdf_name, "wb") as f:
             f.write(img2pdf.convert(tmp_name, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi))))
 
@@ -1717,9 +1718,9 @@ def main():
                 min_image_size_rate=min_image_size_rate,
                 max_image_size_rate=max_image_size_rate,
             )
-            cv2.imwrite(path, card_img)
+            imwrite_japanese(path, card_img)
         else:
-            card_img = cv2.imread(path)
+            card_img = imread_japanese(path)
             assert card_img is not None  # 必ず読み込める前提
 
         card_images.append(card_img)
@@ -1744,7 +1745,7 @@ def main():
         )  # 画像をサムネイル化したカード画像を作成
         for i, card in enumerate(thumbs_cards):
             path = output_dir + os.sep + f"thumbnail_{i}.png"
-            cv2.imwrite(path, card)
+            imwrite_japanese(path, card)
             card_images.append(card)
 
     # カード、シンボル画像に関する情報をcsv出力
