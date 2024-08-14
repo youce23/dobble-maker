@@ -1310,7 +1310,9 @@ def make_image_of_thumbnails_with_names(
         try:
             thumb = _draw_name_in_thumb(symbl_img, thumb_w, thumb_h, symbl_name, text_h_rate=text_h_rate)
         except Exception as e:
-            raise DrawTextError("サムネイルにテキストを描画できない") from e
+            raise DrawTextError(
+                "サムネイル(シンボル一覧)にテキストを描画できない (最大文字高さ比が小さすぎる可能性が高い)"
+            ) from e
 
         thumbs.append(thumb)
 
@@ -1369,7 +1371,7 @@ def make_image_of_thumbnails_with_names(
                 # このカードがいっぱいだったら、カードを出力してから次の画像へ
                 if cnt_img_in_card == 0:
                     # 1個も描画できないまま次の画像へ行ってしまったら、テーブルサイズの設定ミスなので例外送出
-                    raise ValueError("カードにサムネイルが描画できないのでテーブルサイズの調整が必要")
+                    raise ValueError("カードにサムネイル(シンボル一覧)が描画できないのでテーブルサイズの調整が必要")
                 canvas = np.where(canvas_ov[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
                 cards.append(canvas)
                 canvas = None
