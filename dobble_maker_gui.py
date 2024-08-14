@@ -1,9 +1,10 @@
+import json
 import os
 import random
 import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter import filedialog, messagebox
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -587,9 +588,62 @@ class Application(tk.Frame):
                 height_mm=self._page_size_mm[1],
             )
 
+            # 生成パラメータを保存
+            self._save_params()
+
             messagebox.showinfo("完了", f"{self._output_dir}にファイルが生成されました")
         except Exception as e:
             messagebox.showerror("エラー", str(e))
+
+    def _save_params(self, *, save_card_params: bool = True, save_thumb_params: bool = True) -> None:
+        params: dict[str, Any] = {}
+
+        # 既存のパラメータファイルを読み込み
+        json_path = os.path.join(self._output_dir, "parameters.json")
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, mode="r", encoding="utf_8") as f:
+                    params = json.load(f)
+            except Exception:
+                messagebox.showwarning(
+                    "警告",
+                    f"{json_path}の読み込みに失敗したため、同ファイルは更新されません",
+                )
+                return
+
+        if save_card_params:
+            params |= {
+                "image_dir": self._image_dir,
+                "output_dir": self._output_dir,
+                "shuffle": self.shuffle.get(),
+                "n_symbols_per_card": self._n_symbols_per_card,
+                "card_shape": self._card_shape,
+                "card_width_mm": self.card_width.get(),
+                "card_height_mm": self.card_height.get(),
+                "card_margin_mm": self.card_margin.get(),
+                "page_size_mm": self._page_size_mm,
+                "layout_uniform_level": self.cvt_level.get(),
+                "symbol_size_ratio_level": self.cvt_radius.get(),
+                "min_image_size_rate": self._min_image_size_rate,
+                "max_image_size_rate": self._max_image_size_rate,
+                "seed": self._seed,
+            }
+        if save_thumb_params and self.check_thumb.get():
+            params["thumbnails"] = {
+                "image_list_file_path": self._image_list_file_path,
+                "image_table_size": self._image_table_size,
+                "text_h_rate": self._text_h_rate,
+                "symbol_size_p": self._thumb_margin,
+            }
+        try:
+            with open(json_path, mode="w", encoding="utf_8") as f:
+                json.dump(params, f, ensure_ascii=False, indent=4)
+        except Exception:
+            messagebox.showwarning(
+                "警告",
+                f"{json_path}の保存に失敗したため、同ファイルは更新されません",
+            )
+            return
 
     def _make_thumbnails_core(
         self, images: list[np.ndarray], image_paths: list[str]
@@ -641,6 +695,9 @@ class Application(tk.Frame):
         except Exception as e:
             messagebox.showerror("エラー", e)
             return
+
+        # 生成パラメータを保存
+        self._save_params(save_card_params=False, save_thumb_params=True)
 
         messagebox.showinfo("完了", f"{self._output_dir}にシンボル一覧画像が生成されました")
 

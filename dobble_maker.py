@@ -26,9 +26,9 @@ WHITE = (255, 255, 255)
 OVERLAP_VAL = 127
 
 
-class CARD_SHAPE(Enum):
-    CIRCLE = auto()
-    RECTANGLE = auto()
+class CARD_SHAPE(str, Enum):  # Enumのみではjson.load, dumpに失敗するため型を指定
+    CIRCLE = "CIRCLE"
+    RECTANGLE = "RECTANGLE"
 
 
 class VoronoiError(Exception):
