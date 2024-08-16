@@ -379,7 +379,7 @@ def _layout_random(
         canvas, canv_ol = _make_canvas(shape, width, height, margin)
         for img in images:
             # 元画像の余白を除去して外接矩形でトリミング
-            im_bin = np.full((img.shape[0], img.shape[1]), OVERLAP_VAL, dtype=np.uint8)
+            im_bin = np.full(img.shape[:2], OVERLAP_VAL, dtype=np.uint8)
 
             # 長辺を基本サイズに拡縮
             scale = img_base_size / max(img.shape[0], img.shape[1])
@@ -578,13 +578,12 @@ def _layout_voronoi(
     for i_img, img in enumerate(images):
         # 元画像の余白を除去して外接矩形でトリミング
         im_trim = _trim_bb_image(img)
-        im_h = im_trim.shape[0]
-        im_w = im_trim.shape[1]
+        im_h, im_w = im_trim.shape[:2]
 
         pos = pos_images[i_img]  # ボロノイ領域の重心 (描画の中心座標とする) (x, y)
         rgn = rgn_images[i_img]  # ボロノイ領域境界 (x, y)
         # 貼り付ける画像の最大サイズは、ボロノイ領域の最大長に長辺が入るサイズとする
-        mx_len_rgn = max([np.linalg.norm(np.array(p1) - np.array(p2)) for p1 in rgn for p2 in rgn])
+        mx_len_rgn = max(np.linalg.norm(np.array(p1) - np.array(p2)) for p1 in rgn for p2 in rgn)
 
         init_deg = random.randint(0, 360)  # 初期角度をランダムに決める
 
@@ -592,7 +591,7 @@ def _layout_voronoi(
         scl = 100  # シンボル画像のスケール率 (%)
         SCL_LIMIT = 5  # 縮小率の下限
         SCL_DECREASE_RATE = 0.95  # シンボル画像のスケール率の減衰率
-        l_lngside = max(im_trim.shape[0], im_trim.shape[1])  # 元画像の長辺長
+        l_lngside = max(im_h, im_w)  # 元画像の長辺長
         card_lngside = max(width, height)  # カードの長辺長
         symbol_size_range = (min_image_size_rate * card_lngside, max_image_size_rate * card_lngside)
         scl_l_lngside = l_lngside  # 初期値
@@ -617,7 +616,7 @@ def _layout_voronoi(
 
                 # 重なりなく描画できるか確認
                 # 画像貼り付け位置にマスクを描画
-                mask_img = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
+                mask_img = np.zeros(canvas.shape[:2], dtype=np.uint8)
                 _pts = np.array([lt, rt, lb, rb], dtype=int)
                 cv2.fillConvexPoly(mask_img, _pts, OVERLAP_VAL, lineType=cv2.LINE_4)
 
@@ -645,9 +644,9 @@ def _layout_voronoi(
                     canv_ol += mask_img
 
                     # キャンバスに重畳 (マスク処理)
-                    im_mask = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
+                    im_mask = np.zeros(canvas.shape[:2], dtype=np.uint8)
                     _pts = np.array([lt, rt, lb, rb], dtype=int)
-                    cv2.fillConvexPoly(im_mask, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
+                    cv2.fillConvexPoly(im_mask, _pts, OVERLAP_VAL, lineType=cv2.LINE_4)
 
                     _im_scl = cv2.resize(im_trim, None, fx=scl_r, fy=scl_r, interpolation=_get_interpolation(scl_r))
                     _im_rot = rotate_fit(_im_scl, -(deg + init_deg), flags=cv2.INTER_CUBIC, borderValue=WHITE)
