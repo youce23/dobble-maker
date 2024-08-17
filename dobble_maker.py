@@ -6,7 +6,7 @@ import os
 import random
 import tempfile
 from enum import Enum
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import chardet
 import cv2
@@ -261,7 +261,7 @@ def load_images(
             img_bg = np.full((h, w, 3), WHITE, dtype=np.uint8)
             img = (img_bg * (1 - img[:, :, 3:] / 255) + img[:, :, :3] * (img[:, :, 3:] / 255)).astype(np.uint8)
         elif n_ch == 1:
-            img = cv2.cvtColor(img, cv2.GRAY2BGR)
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif n_ch == 3:
             # 3チャネルなら何もしない
             pass
