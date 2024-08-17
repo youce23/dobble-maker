@@ -6,7 +6,7 @@ name = "pypi"
 [packages]
 opencv-python = "*"
 img2pdf = "*"
-numpy = "*"
+numpy = "==1.*"
 tqdm = "*"
 pypdf = "*"
 galois = "*"
