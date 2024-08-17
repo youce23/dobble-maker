@@ -537,6 +537,7 @@ class Application(tk.Frame):
 
             # 各カード毎の組み合わせを生成
             pairs, n_symbols = make_dobble_deck(self._n_symbols_per_card)
+            save_card_list_to_csv(self._output_dir, pairs)  # 組み合わせのcsvを出力
 
             # image_dirからn_symbols数の画像を取得
             try:

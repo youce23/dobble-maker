@@ -5,8 +5,8 @@ import math
 import os
 import random
 import tempfile
-from enum import Enum, auto
-from typing import Literal
+from enum import Enum
+from typing import Any, Literal
 
 import chardet
 import cv2
@@ -261,7 +261,7 @@ def load_images(
             img_bg = np.full((h, w, 3), WHITE, dtype=np.uint8)
             img = (img_bg * (1 - img[:, :, 3:] / 255) + img[:, :, :3] * (img[:, :, 3:] / 255)).astype(np.uint8)
         elif n_ch == 1:
-            img = cv2.cvtColor(img, cv2.GRAY2BGR)
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         elif n_ch == 3:
             # 3チャネルなら何もしない
             pass
@@ -323,29 +323,73 @@ def rotate_fit(
     return img_rot
 
 
-def _make_canvas(shape: CARD_SHAPE, width: int, height: int, margin: int) -> tuple[np.ndarray, np.ndarray]:
-    """空のキャンバスを作成"""
-    if shape == CARD_SHAPE.CIRCLE:
-        # 描画キャンバス
-        canvas = np.full((height, width, 3), WHITE, dtype=np.uint8)
-        # 重複確認用キャンバス
-        canv_ol = np.full((height, width), OVERLAP_VAL, dtype=np.uint8)
+def _make_canvas(
+    shape: CARD_SHAPE,
+    width: int,
+    height: int,
+    margin: int,
+    is_canvas_for_overlap: bool,
+    *,
+    draw_black_in_rendering_area: bool = False,
+) -> np.ndarray:
+    """空のキャンバスを作成
 
+    Args:
+        shape (CARD_SHAPE): カード形状
+        width (int): カード幅
+        height (int): カード高さ
+        margin (int): カード余白
+        is_canvas_for_overlap (bool): 重複確認用のキャンバス（マスク）ならTrue, 最終出力するカード画像を作るキャンバスならFalse
+        draw_black_in_rendering_area (bool, optional):
+            not is_canvas_for_overlap の場合のみ有効.
+            カード内の余白を除く描画可能エリアを黒塗りするならTrue.
+            Defaults to False.
+
+    Returns:
+        np.ndarray: 画像
+    """
+    if shape == CARD_SHAPE.CIRCLE:
         center = (height // 2, width // 2)
         radius = width // 2 - margin
-        cv2.circle(canvas, center, radius, BLACK, thickness=-1)
-        cv2.circle(canv_ol, center, radius, 0, thickness=-1)
+
+        if not is_canvas_for_overlap:
+            # 描画キャンバス
+            canvas = np.full((height, width, 3), WHITE, dtype=np.uint8)
+            if draw_black_in_rendering_area:
+                cv2.circle(canvas, center, radius, BLACK, thickness=-1)
+        else:
+            # 重複確認用キャンバス
+            canvas = np.full((height, width), OVERLAP_VAL, dtype=np.uint8)
+            cv2.circle(
+                canvas,
+                center,
+                radius,
+                0,  # type: ignore
+                thickness=-1,
+            )  # type: ignore
     elif shape == CARD_SHAPE.RECTANGLE:
-        # 描画キャンバス
-        canvas = np.zeros((height, width, 3), dtype=np.uint8)
-        # 重複確認用キャンバス
-        canv_ol = np.zeros((height, width), dtype=np.uint8)
-        cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), WHITE, thickness=margin, lineType=cv2.LINE_4)
-        cv2.rectangle(canv_ol, (0, 0), (width - 1, height - 1), OVERLAP_VAL, thickness=margin, lineType=cv2.LINE_4)
+        if not is_canvas_for_overlap:
+            # 描画キャンバス
+            if not draw_black_in_rendering_area:
+                canvas = np.full((height, width, 3), WHITE, dtype=np.uint8)
+            else:
+                canvas = np.zeros((height, width, 3), dtype=np.uint8)
+                cv2.rectangle(canvas, (0, 0), (width - 1, height - 1), WHITE, thickness=margin, lineType=cv2.LINE_4)
+        else:
+            # 重複確認用キャンバス
+            canvas = np.zeros((height, width), dtype=np.uint8)
+            cv2.rectangle(
+                canvas,
+                (0, 0),
+                (width - 1, height - 1),
+                OVERLAP_VAL,  # type: ignore
+                thickness=margin,
+                lineType=cv2.LINE_4,
+            )  # type: ignore
     else:
         raise NotImplementedError
 
-    return canvas, canv_ol
+    return canvas
 
 
 def _get_interpolation(scale: float):
@@ -356,8 +400,118 @@ def _get_interpolation(scale: float):
     return downsize if scale < 1 else upsize
 
 
+def _calc_drawing_params_by_random(
+    images: list[np.ndarray],
+    shape: CARD_SHAPE,
+    width: int,
+    height: int,
+    margin: int,
+    show: bool,
+) -> list[dict[str, Any]]:
+    """画像をランダム配置するパラメータを計算
+
+    Args:
+        images (list[np.ndarray]): 配置する画像のリスト
+        shape (CARD_SHAPE): カードの形状（円または矩形）
+        width (int): カードの幅
+        height (int): カードの高さ（円の場合は無視される）
+        margin (int): カード外縁の余白
+        show (bool): 計算中の画像を表示するかどうか
+
+    Returns:
+        list[dict[str, Any]]: 各画像の配置パラメータのリスト
+    """
+    # 描画位置を決定するための小さなキャンバス(短辺180)を準備
+    scl_canv = 180 / min(width, height)
+    w_scl_canv = int(width * scl_canv)
+    h_scl_canv = int(height * scl_canv)
+    m_scl_canv = int(np.ceil(margin * scl_canv))  # margin > 0 の場合には1以上になるようにceil
+
+    # 画像1枚当たりの基本サイズを指定
+    n_img_in_card = len(images)
+    img_base_size = int(np.ceil(max(h_scl_canv, w_scl_canv) / np.ceil(np.sqrt(n_img_in_card))))
+
+    while True:
+        params: list[dict[str, Any]] = []
+
+        # マスク画像に描画するパラメータ
+        # キャンバスの作成
+        canvas = _make_canvas(shape, w_scl_canv, h_scl_canv, m_scl_canv, True)
+        for img in images:
+            # 元画像の余白を除去して外接矩形でトリミング
+            _img = _trim_bb_image(img)
+            h_im_trim, w_im_trim = _img.shape[:2]
+            h_im_trim = np.ceil(h_im_trim * scl_canv)
+            w_im_trim = np.ceil(w_im_trim * scl_canv)
+
+            # ランダムにリサイズ、回転、配置し、重複するならパラメータを変えて最大n_max回やり直し
+            # (n_max回試してもダメなら最初からやり直し)
+            n_max = 100
+            cur_canv = canvas.copy()
+            ok = False
+            for _ in range(n_max):
+                _canv = cur_canv.copy()
+
+                # リサイズ, 移動, 回転のパラメータをランダムに決定
+                _scale_base_size = img_base_size / max(h_im_trim, w_im_trim)  # 標準サイズを基準にさらにリサイズ
+                scale = random.uniform(0.5, 0.8) * _scale_base_size
+                h_im_resized = h_im_trim * scale
+                w_im_resized = w_im_trim * scale
+                center = [
+                    random.randint(0, int(w_scl_canv - w_im_resized)) + w_im_resized / 2,
+                    random.randint(0, int(h_scl_canv - h_im_resized)) + h_im_resized / 2,
+                ]
+                angle = random.randint(0, 360)
+
+                # リサイズ, 回転, 平行移動を矩形の4頂点に対して計算
+                lt = _rotate_2d((-w_im_resized / 2, -h_im_resized / 2), angle)
+                rt = _rotate_2d((+w_im_resized / 2, -h_im_resized / 2), angle)
+                lb = _rotate_2d((+w_im_resized / 2, +h_im_resized / 2), angle)
+                rb = _rotate_2d((-w_im_resized / 2, +h_im_resized / 2), angle)
+
+                lt = (lt[0] + center[0], lt[1] + center[1])
+                rt = (rt[0] + center[0], rt[1] + center[1])
+                lb = (lb[0] + center[0], lb[1] + center[1])
+                rb = (rb[0] + center[0], rb[1] + center[1])
+
+                # 画像貼り付け位置にマスクを描画
+                mask_img = np.zeros(_canv.shape[:2], dtype=np.uint8)
+                _pts = np.array([lt, rt, lb, rb], dtype=int)
+                cv2.fillConvexPoly(mask_img, _pts, OVERLAP_VAL, lineType=cv2.LINE_4)
+
+                # キャンバスに重畳
+                _canv += mask_img
+
+                if show:
+                    cv2.imshow("canv_overlap", _canv)
+                    cv2.waitKey(1)
+
+                # 重なりの確認
+                if (_canv > OVERLAP_VAL).sum() == 0:
+                    ok = True
+                    canvas = _canv
+
+                    p = {"scale": scale, "center_xy": (np.array(center) / scl_canv).tolist(), "rotation_deg": angle}
+                    params.append(p)
+
+                    break
+
+            if not ok:
+                break
+
+        if ok:
+            break
+
+    return params
+
+
 def _layout_random(
-    shape: CARD_SHAPE, width: int, height: int, margin: int, images: list[np.ndarray], show: bool
+    shape: CARD_SHAPE,
+    width: int,
+    height: int,
+    margin: int,
+    images: list[np.ndarray],
+    show: bool,
 ) -> np.ndarray:
     """画像を重ならないようにランダムに配置する
 
@@ -369,83 +523,28 @@ def _layout_random(
         images (list[np.ndarray]): 配置画像ソース
         show (bool): 計算中の画像を画面表示するならTrue
     """
-    # 画像1枚当たりの基本サイズを指定
-    n_img_in_card = len(images)
-    img_base_size = int(np.ceil(max(height, width) / np.ceil(np.sqrt(n_img_in_card))))
+    # 画像毎の描画位置決め
+    draw_params_images = _calc_drawing_params_by_random(
+        images,
+        shape,
+        width,
+        height,
+        margin,
+        show,
+    )
 
-    while True:
-        # マスク画像に描画するパラメータ
-        # キャンバスの作成
-        canvas, canv_ol = _make_canvas(shape, width, height, margin)
-        for img in images:
-            # 元画像の余白を除去して外接矩形でトリミング
-            im_bin = np.full((img.shape[0], img.shape[1]), OVERLAP_VAL, dtype=np.uint8)
+    # 描画
+    card_image = _render_images_with_params(
+        images,
+        shape,
+        width,
+        height,
+        margin,
+        draw_params_images,
+        show,
+    )
 
-            # 長辺を基本サイズに拡縮
-            scale = img_base_size / max(img.shape[0], img.shape[1])
-            im_base = cv2.resize(img, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
-            im_bin_base = cv2.resize(im_bin, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-
-            # ランダムにリサイズ、回転、配置し、重複するならパラメータを変えて最大n_max回やり直し
-            # (n_max回試してもダメなら最初からやり直し)
-            n_max = 100
-            cur_canv = canvas.copy()
-            cur_canv_ol = canv_ol.copy()
-            ok = False
-            for _ in range(n_max):
-                _canv = cur_canv.copy()
-                _canv_ol = cur_canv_ol.copy()
-                # ランダムにリサイズ
-                scale = random.uniform(
-                    0.5, 0.8
-                )  # NOTE: 小さめの方が敷き詰めるのに時間がかからないが余白が増えるので適宜調整
-                _im_scl = cv2.resize(im_base, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
-                _im_bin_scl = cv2.resize(im_bin_base, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-
-                # ランダムに回転
-                angle = random.randint(0, 360)
-                _im_rot = rotate_fit(
-                    _im_scl, angle, flags=cv2.INTER_CUBIC, borderValue=WHITE
-                )  # 境界を白にしないと枠が残る
-                _im_bin_rot = rotate_fit(_im_bin_scl, angle, flags=cv2.INTER_NEAREST)
-
-                # ランダムに平行移動
-                dy = random.randint(0, height - _im_rot.shape[0])
-                dx = random.randint(0, width - _im_rot.shape[1])
-                mv_mat = np.float32([[1, 0, dx], [0, 1, dy]])
-                im_rnd = cv2.warpAffine(
-                    _im_rot, mv_mat, (width, height), flags=cv2.INTER_CUBIC, borderValue=WHITE
-                )  # 境界を白にしないと枠が残る
-                im_bin_rnd = cv2.warpAffine(_im_bin_rot, mv_mat, (width, height), flags=cv2.INTER_NEAREST)
-
-                # キャンバスに重畳 (マスク処理)
-                _canv = np.where(im_bin_rnd[:, :, np.newaxis] != 0, im_rnd, _canv)
-                _canv_ol += im_bin_rnd
-
-                if show:
-                    cv2.imshow("canv", _canv)
-                    cv2.imshow("canv_overlap", _canv_ol)
-                    cv2.waitKey(1)
-
-                # 重なりの確認
-                if (_canv_ol > OVERLAP_VAL).sum() == 0:
-                    ok = True
-
-                    canvas = _canv
-                    canv_ol = _canv_ol
-                    break
-
-            if not ok:
-                break
-        if ok:
-            # 最終キャンバスに重畳 (マスク処理)
-            canvas = np.where(canv_ol[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
-            break
-
-    if show:
-        cv2.destroyAllWindows()
-
-    return canvas
+    return card_image
 
 
 def _trim_bb_image(image: np.ndarray) -> np.ndarray:
@@ -508,6 +607,223 @@ def _make_drawing_region_in_card(shape: CARD_SHAPE, width: int, height: int, mar
     return bnd_pts
 
 
+def _calc_drawing_params_by_vorooni(
+    images: list[np.ndarray],
+    shape: CARD_SHAPE,
+    width: int,
+    height: int,
+    margin: int,
+    radius_p: float,
+    n_iters: int,
+    min_image_size_rate: float,
+    max_image_size_rate: float,
+    show: bool,
+) -> list[dict[str, Any]]:
+    """画像をボロノイ分割に基づいて配置するためのパラメータを計算する
+
+    Args:
+        images (list[np.ndarray]): 配置する画像のリスト
+        shape (CARD_SHAPE): カードの形状（円または矩形）
+        width (int): カードの幅
+        height (int): カードの高さ（円の場合は無視される）
+        margin (int): カード外縁の余白
+        radius_p (float): ボロノイ分割の半径パラメータ
+        n_iters (int): ボロノイ分割の反復回数
+        min_image_size_rate (float): 画像の最小サイズの割合
+        max_image_size_rate (float): 画像の最大サイズの割合
+        show (bool): 計算中の画像を表示するかどうか
+
+    Raises:
+        VoronoiError: ボロノイ分割に失敗した場合に発生
+        LayoutSymbolImageError: シンボル画像のレイアウトに失敗した場合に発生
+
+    Returns:
+        list[dict[str, Any]]: 各画像の配置パラメータのリスト
+    """
+    # 描画位置を決定するための小さなキャンバス(短辺180)を準備
+    scl_canv = 180 / min(width, height)
+    width = int(width * scl_canv)
+    height = int(height * scl_canv)
+    margin = int(np.ceil(margin * scl_canv))  # margin > 0 の場合には1以上になるようにceil
+
+    # 余白とカード形状を考慮した画像の描画可能範囲を取得
+    bnd_pts = _make_drawing_region_in_card(shape, width, height, margin)
+
+    # 重心ボロノイ分割で各画像の中心位置と範囲を取得
+    try:
+        # NOTE: ここのshowは毎回止まってしまうのでデバッグ時に手動でTrueにする
+        center_images, rgn_images = cvt(bnd_pts, len(images), radius_p=radius_p, n_iters=n_iters, show_step=None)
+    except Exception as e:
+        # radius_p を設定した場合に初期値によって例外が生じることがある(0.0指定時は生じたことはない)
+        raise VoronoiError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)") from e
+
+    # 重なりチェックをするためのマスク画像 (1ch) を作成
+    # 描画後に(0またはOVERLAP_VAL)以外の値があったら、その画素は重なりがあったことを意味する
+    canvas = _make_canvas(shape, width, height, margin, True)
+
+    # 各画像をpos_imagesに配置
+    params: list[dict[str, Any]] = []
+    for i_img, img in enumerate(images):
+        # 元画像の余白を除去して外接矩形でトリミング
+        im_trim = _trim_bb_image(img)
+        im_h, im_w = im_trim.shape[:2]
+        im_h = np.ceil(im_h * scl_canv)
+        im_w = np.ceil(im_w * scl_canv)
+
+        center = center_images[i_img]  # ボロノイ領域の重心 (描画の中心座標とする) (x, y)
+        rgn = rgn_images[i_img]  # ボロノイ領域境界 (x, y)
+        # 貼り付ける画像の最大サイズは、ボロノイ領域の最大長に長辺が入るサイズとする
+        mx_len_rgn = max(np.linalg.norm(np.array(p1) - np.array(p2)) for p1 in rgn for p2 in rgn)
+
+        init_deg = random.randint(0, 360)  # 初期角度をランダムに決める
+
+        ok = False
+        scl = 100  # シンボル画像のスケール率 (%)
+        SCL_LIMIT = 5  # 縮小率の下限
+        SCL_DECREASE_RATE = 0.95  # シンボル画像のスケール率の減衰率
+        l_lngside = max(im_h, im_w)  # 元画像の長辺長
+        card_lngside = max(width, height)  # カードの長辺長
+        symbol_size_range = (min_image_size_rate * card_lngside, max_image_size_rate * card_lngside)
+        scl_l_lngside = l_lngside  # 初期値
+        while scl > SCL_LIMIT and symbol_size_range[0] <= scl_l_lngside:
+            # 元画像の対角長とボロノイ領域の最大長が一致するスケールを100%としてスケールを計算
+            scl_r = mx_len_rgn / l_lngside * (scl / 100)
+            scl_l_lngside = int(scl_r * l_lngside)
+            if scl_l_lngside > symbol_size_range[1]:
+                scl *= SCL_DECREASE_RATE
+                continue
+            for deg in range(0, 180, 10):  # 画像を少しずつ回転 (矩形で試しているので180度までの確認で良い)
+                # 画像と同サイズの矩形をキャンバスに重畳描画
+                rot_deg = init_deg + deg
+                lt = _rotate_2d((-im_w * scl_r / 2, -im_h * scl_r / 2), rot_deg)
+                rt = _rotate_2d((+im_w * scl_r / 2, -im_h * scl_r / 2), rot_deg)
+                lb = _rotate_2d((+im_w * scl_r / 2, +im_h * scl_r / 2), rot_deg)
+                rb = _rotate_2d((-im_w * scl_r / 2, +im_h * scl_r / 2), rot_deg)
+
+                lt = (lt[0] + center[0], lt[1] + center[1])
+                rt = (rt[0] + center[0], rt[1] + center[1])
+                lb = (lb[0] + center[0], lb[1] + center[1])
+                rb = (rb[0] + center[0], rb[1] + center[1])
+
+                # 重なりなく描画できるか確認
+                # 画像貼り付け位置にマスクを描画
+                mask_img = np.zeros(canvas.shape[:2], dtype=np.uint8)
+                _pts = np.array([lt, rt, lb, rb], dtype=int)
+                cv2.fillConvexPoly(mask_img, _pts, OVERLAP_VAL, lineType=cv2.LINE_4)
+
+                # ボロノイ境界を超えない制約をつけるために境界線を描画
+                # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
+                # 参考: https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
+                #
+                # ボロノイ境界はmarginなど他のマスクと重なることがあるので、重畳ではなくOVERLAP_VALの描画にする
+                _canvas = canvas.copy()
+                _pts = np.array(rgn).reshape((-1, 1, 2)).astype(np.int32)
+                cv2.polylines(_canvas, [_pts], True, OVERLAP_VAL, thickness=1, lineType=cv2.LINE_4)
+
+                # 画像マスクとボロノイ境界マスクを重畳
+                _canvas += mask_img
+
+                if show:
+                    cv2.imshow("canv_overlap", _canvas)
+                    cv2.waitKey(1)
+
+                # 重なりの確認
+                if (_canvas > OVERLAP_VAL).sum() == 0:
+                    ok = True
+
+                    # 重なりがなければ改めてマスクに画像マスクを重畳
+                    canvas += mask_img
+
+                    p = {"scale": scl_r, "center_xy": (np.array(center) / scl_canv).tolist(), "rotation_deg": rot_deg}
+                    params.append(p)
+
+                    break
+            if ok:
+                break
+
+            scl *= SCL_DECREASE_RATE  # 前回の大きさを基準に一定割合だけ縮小
+
+        if not ok:
+            break
+
+    if not ok:
+        # ここでOKになっていないということは画像を限界まで小さくしてもボロノイ領域に収まらなかったことを意味するので例外とする
+        raise LayoutSymbolImageError(
+            "ボロノイ領域内へのシンボル画像の描画に失敗 "
+            f"(min_image_size_rate ({min_image_size_rate}) を小さくする, "
+            "あるいはボロノイ領域がより大きくなるようなパラメータ調整が必要)"
+        )
+
+    assert len(params) == len(images)
+
+    return params
+
+
+def _render_images_with_params(
+    images: list[np.ndarray],
+    shape: CARD_SHAPE,
+    width: int,
+    height: int,
+    margin: int,
+    draw_params_images: list[dict[str, Any]],
+    show: bool,
+) -> np.ndarray:
+    """
+    各シンボル画像をカード内に描画
+
+    Args:
+        images (list[np.ndarray]): シンボル画像のリスト
+        shape (CARD_SHAPE): カード形状
+        width (int): カード幅
+        height (int): カード高さ
+        margin (int): カードの外縁につける余白サイズ
+        draw_params_images (list[dict[str, Any]]): 各シンボル画像の描画パラメータ
+        show (bool): 計算中の画像を画面表示するならTrue
+
+    Returns:
+        np.ndarray: 描画結果
+    """
+    assert len(images) == len(draw_params_images)
+
+    # 画像を描画するためのキャンバスを作成
+    canvas = _make_canvas(shape, width, height, margin, False)
+
+    # 各画像をキャンバスに描画
+    for param, img in zip(draw_params_images, images):
+        scale = param["scale"]
+        center = param["center_xy"]
+        rotation_deg = param["rotation_deg"]
+
+        # 画像をトリミング
+        img_trim = _trim_bb_image(img)
+
+        # 画像をスケーリング
+        img_resized = cv2.resize(img_trim, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
+
+        # 画像を回転
+        img_rotated = rotate_fit(img_resized, -rotation_deg, flags=cv2.INTER_CUBIC, borderValue=WHITE)
+
+        # 画像をキャンバスに重畳
+        dx = center[0] - img_rotated.shape[1] / 2
+        dy = center[1] - img_rotated.shape[0] / 2
+        mv_mat = np.float32([[1, 0, dx], [0, 1, dy]])  # type: ignore
+        img_affine = cv2.warpAffine(
+            img_rotated,
+            mv_mat,  # type: ignore
+            (width, height),
+            flags=cv2.INTER_CUBIC,
+            borderValue=WHITE,
+        )  # type: ignore
+        mask = np.any(img_affine != WHITE, axis=-1)
+        canvas[mask] = img_affine[mask]
+
+        if show:
+            cv2.imshow("canvas", canvas)
+            cv2.waitKey(1)
+
+    return canvas
+
+
 def _layout_voronoi(
     shape: CARD_SHAPE,
     width: int,
@@ -553,138 +869,32 @@ def _layout_voronoi(
             assert width == height
     assert 0.0 <= min_image_size_rate < max_image_size_rate <= 1.0
 
-    # 各カードの配置位置と範囲を計算 (x, yで計算)
-    bnd_pts = _make_drawing_region_in_card(shape, width, height, margin)
+    # 画像毎の描画位置決め
+    draw_params_images = _calc_drawing_params_by_vorooni(
+        images,
+        shape,
+        width,
+        height,
+        margin,
+        radius_p,
+        n_iters,
+        min_image_size_rate,
+        max_image_size_rate,
+        show,
+    )
 
-    # 重心ボロノイ分割で各画像の中心位置と範囲を取得
-    # (範囲は目安であり変わっても良い)
-    # NOTE: ここのshowは毎回止まってしまうのでデバッグ時に手動でTrueにする
-    try:
-        pos_images, rgn_images = cvt(bnd_pts, len(images), radius_p=radius_p, n_iters=n_iters, show_step=None)
-    except Exception as e:
-        # radius_p を設定した場合に初期値によって例外が生じることがある(0.0指定時は生じたことはない)
-        raise VoronoiError(f"ボロノイ分割が失敗 (radius_p({radius_p:.2f})が大きすぎる可能性が高い)") from e
+    # 描画
+    card_image = _render_images_with_params(
+        images,
+        shape,
+        width,
+        height,
+        margin,
+        draw_params_images,
+        show,
+    )
 
-    # キャンバスの作成
-    # canvas:
-    #   最終的に出力する画像 (3ch)
-    #   シンボルの画像位置が決まるごとに重畳され、最後に余白(canvas_olで0の箇所)がWHITEで塗りつぶされる
-    # canvas_ol:
-    #   重なりチェックをするためのマスク画像 (1ch),
-    #   描画後に(0またはOVERLAP_VAL)以外の値があったら、その画素は重なりがあったことを意味する
-    canvas, canv_ol = _make_canvas(shape, width, height, margin)
-
-    # 各画像をpos_imagesに配置
-    for i_img, img in enumerate(images):
-        # 元画像の余白を除去して外接矩形でトリミング
-        im_trim = _trim_bb_image(img)
-        im_h = im_trim.shape[0]
-        im_w = im_trim.shape[1]
-
-        pos = pos_images[i_img]  # ボロノイ領域の重心 (描画の中心座標とする) (x, y)
-        rgn = rgn_images[i_img]  # ボロノイ領域境界 (x, y)
-        # 貼り付ける画像の最大サイズは、ボロノイ領域の最大長に長辺が入るサイズとする
-        mx_len_rgn = max([np.linalg.norm(np.array(p1) - np.array(p2)) for p1 in rgn for p2 in rgn])
-
-        init_deg = random.randint(0, 360)  # 初期角度をランダムに決める
-
-        ok = False
-        scl = 100  # シンボル画像のスケール率 (%)
-        SCL_LIMIT = 5  # 縮小率の下限
-        SCL_DECREASE_RATE = 0.95  # シンボル画像のスケール率の減衰率
-        l_lngside = max(im_trim.shape[0], im_trim.shape[1])  # 元画像の長辺長
-        card_lngside = max(width, height)  # カードの長辺長
-        symbol_size_range = (min_image_size_rate * card_lngside, max_image_size_rate * card_lngside)
-        scl_l_lngside = l_lngside  # 初期値
-        while scl > SCL_LIMIT and symbol_size_range[0] <= scl_l_lngside:
-            # 元画像の対角長とボロノイ領域の最大長が一致するスケールを100%としてスケールを計算
-            scl_r = mx_len_rgn / l_lngside * (scl / 100)
-            scl_l_lngside = int(scl_r * l_lngside)
-            if scl_l_lngside > symbol_size_range[1]:
-                scl *= SCL_DECREASE_RATE
-                continue
-            for deg in range(0, 180, 10):  # 画像を少しずつ回転 (矩形で試しているので180度までの確認で良い)
-                # 画像と同サイズの矩形をキャンバスに重畳描画
-                lt = _rotate_2d((-im_w * scl_r / 2, -im_h * scl_r / 2), deg + init_deg)
-                rt = _rotate_2d((+im_w * scl_r / 2, -im_h * scl_r / 2), deg + init_deg)
-                lb = _rotate_2d((+im_w * scl_r / 2, +im_h * scl_r / 2), deg + init_deg)
-                rb = _rotate_2d((-im_w * scl_r / 2, +im_h * scl_r / 2), deg + init_deg)
-
-                lt = (lt[0] + pos[0], lt[1] + pos[1])
-                rt = (rt[0] + pos[0], rt[1] + pos[1])
-                lb = (lb[0] + pos[0], lb[1] + pos[1])
-                rb = (rb[0] + pos[0], rb[1] + pos[1])
-
-                # 重なりなく描画できるか確認
-                # 画像貼り付け位置にマスクを描画
-                mask_img = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
-                _pts = np.array([lt, rt, lb, rb], dtype=int)
-                cv2.fillConvexPoly(mask_img, _pts, OVERLAP_VAL, lineType=cv2.LINE_4)
-
-                # ボロノイ境界を超えない制約をつけるために境界線を描画
-                # polylines (やfillPoly) は[(x0, y0), (x1, y1), ...]を以下の形にreshapeしないと動かない
-                # 参考: https://www.geeksforgeeks.org/python-opencv-cv2-polylines-method/
-                _canv_ol = (
-                    canv_ol.copy()
-                )  # ボロノイ境界はmarginなど他のマスクと重なることがあるので、重畳ではなくOVERLAP_VALの描画にする
-                _pts = np.array(rgn).reshape((-1, 1, 2)).astype(np.int32)
-                cv2.polylines(_canv_ol, [_pts], True, OVERLAP_VAL, thickness=1, lineType=cv2.LINE_4)
-
-                # 画像マスクとボロノイ境界マスクを重畳
-                _canv_ol += mask_img
-
-                if show:
-                    cv2.imshow("canv_overlap", _canv_ol)
-                    cv2.waitKey(1)
-
-                # 重なりの確認
-                if (_canv_ol > OVERLAP_VAL).sum() == 0:
-                    ok = True
-
-                    # 重なりがなければ改めてマスクに画像マスクを重畳
-                    canv_ol += mask_img
-
-                    # キャンバスに重畳 (マスク処理)
-                    im_mask = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
-                    _pts = np.array([lt, rt, lb, rb], dtype=int)
-                    cv2.fillConvexPoly(im_mask, np.array(_pts), OVERLAP_VAL, lineType=cv2.LINE_4)
-
-                    _im_scl = cv2.resize(im_trim, None, fx=scl_r, fy=scl_r, interpolation=_get_interpolation(scl_r))
-                    _im_rot = rotate_fit(_im_scl, -(deg + init_deg), flags=cv2.INTER_CUBIC, borderValue=WHITE)
-                    dx = pos[0] - _im_rot.shape[1] / 2
-                    dy = pos[1] - _im_rot.shape[0] / 2
-                    mv_mat = np.float32([[1, 0, dx], [0, 1, dy]])
-                    im_rnd = cv2.warpAffine(_im_rot, mv_mat, (width, height), flags=cv2.INTER_CUBIC, borderValue=WHITE)
-                    canvas = np.where(im_mask[:, :, np.newaxis] != 0, im_rnd, canvas)
-
-                    if show:
-                        cv2.imshow("canvas", canvas)
-                        cv2.waitKey(1)
-
-                    break
-            if ok:
-                break
-
-            scl *= SCL_DECREASE_RATE  # 前回の大きさを基準に一定割合だけ縮小
-
-        if not ok:
-            break
-
-    if not ok:
-        # ここでOKになっていないということは画像を限界まで小さくしてもボロノイ領域に収まらなかったことを意味するので例外とする
-        raise LayoutSymbolImageError(
-            "ボロノイ領域内へのシンボル画像の描画に失敗 "
-            f"(min_image_size_rate ({min_image_size_rate}) を小さくする, "
-            "あるいはボロノイ領域がより大きくなるようなパラメータ調整が必要)"
-        )
-
-    if show:
-        cv2.destroyAllWindows()
-
-    # 最終キャンバスに重畳 (マスク処理)
-    canvas = np.where(canv_ol[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
-
-    return canvas
+    return card_image
 
 
 def layout_images_randomly_wo_overlap(
@@ -1328,7 +1538,8 @@ def make_image_of_thumbnails_with_names(
         # 対象のサムネイル画像を描画できる場所をカード内のセル位置を更新しながら探索
         while not ok:
             if canvas is None:
-                canvas, canvas_ov = _make_canvas(card_shape, width, height, margin)
+                canvas = _make_canvas(card_shape, width, height, margin, False, draw_black_in_rendering_area=True)
+                canvas_ov = _make_canvas(card_shape, width, height, margin, True)
 
             # 描画位置に入るか確認
             assert canvas_ov is not None
@@ -1391,11 +1602,15 @@ def make_image_of_thumbnails_with_names(
             _draw_frame_of_card(width, height, card_shape, card)
 
     if show:
+        win_names = []
         for i, card in enumerate(cards):
-            cv2.imshow(f"#{i}", card)
+            win_name = f"#{i}"
+            cv2.imshow(win_name, card)
+            win_names.append(win_name)
         cv2.waitKey(show_wait_ms)
 
-        cv2.destroyAllWindows()
+        for name in win_names:
+            cv2.destroyWindow(name)
 
     return cards
 
@@ -1697,6 +1912,7 @@ def main():
     # ========
     # 各カード毎の組み合わせを生成
     pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
+    save_card_list_to_csv(output_dir, pairs)  # 組み合わせのcsvを出力
 
     # image_dirからn_symbols数の画像を取得
     images, image_paths = load_images(image_dir, n_symbols, shuffle=shuffle)
@@ -1719,6 +1935,7 @@ def main():
                 n_voronoi_iters=n_voronoi_iters,
                 min_image_size_rate=min_image_size_rate,
                 max_image_size_rate=max_image_size_rate,
+                show=False,
             )
             imwrite_japanese(path, card_img)
         else:
