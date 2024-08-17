@@ -999,12 +999,12 @@ def merge_pdf(pdf_paths: list[str], output_pdf: str):
     output_dir = os.path.dirname(output_pdf)
     os.makedirs(output_dir, exist_ok=True)
 
-    merger = pypdf.PdfMerger()
+    writer = pypdf.PdfWriter()
     for p in pdf_paths:
-        merger.append(p)
+        writer.append(p)
 
-    merger.write(output_pdf)
-    merger.close()
+    writer.write(output_pdf)
+    writer.close()
 
 
 def centering_img(src: np.ndarray) -> np.ndarray:
