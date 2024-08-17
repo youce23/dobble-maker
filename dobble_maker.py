@@ -588,11 +588,11 @@ def _calc_drawing_params_by_vorooni(
     Returns:
         list[dict[str, Any]]: 各画像の配置パラメータのリスト
     """
-    # 描画位置を決定するための小さなキャンバスを準備
-    # TODO: width, height, marginが小さくなりすぎないように調整
-    width = width // 10
-    height = height // 10
-    margin = margin // 10
+    # 描画位置を決定するための小さなキャンバス(短辺180)を準備
+    scl_canv = 180 / min(width, height)
+    width = int(width * scl_canv)
+    height = int(height * scl_canv)
+    margin = int(np.ceil(margin * scl_canv))  # margin > 0 の場合には1以上になるようにceil
 
     # 余白とカード形状を考慮した画像の描画可能範囲を取得
     bnd_pts = _make_drawing_region_in_card(shape, width, height, margin)
@@ -615,8 +615,8 @@ def _calc_drawing_params_by_vorooni(
         # 元画像の余白を除去して外接矩形でトリミング
         im_trim = _trim_bb_image(img)
         im_h, im_w = im_trim.shape[:2]
-        im_h = im_h // 10
-        im_w = im_w // 10
+        im_h = np.ceil(im_h * scl_canv)
+        im_w = np.ceil(im_w * scl_canv)
 
         center = center_images[i_img]  # ボロノイ領域の重心 (描画の中心座標とする) (x, y)
         rgn = rgn_images[i_img]  # ボロノイ領域境界 (x, y)
@@ -682,7 +682,7 @@ def _calc_drawing_params_by_vorooni(
                     # 重なりがなければ改めてマスクに画像マスクを重畳
                     canvas += mask_img
 
-                    p = {"scale": scl_r, "center_xy": (10 * np.array(center)).tolist(), "rotation_deg": rot_deg}
+                    p = {"scale": scl_r, "center_xy": (np.array(center) / scl_canv).tolist(), "rotation_deg": rot_deg}
                     params.append(p)
 
                     break
