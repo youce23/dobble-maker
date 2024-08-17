@@ -400,8 +400,118 @@ def _get_interpolation(scale: float):
     return downsize if scale < 1 else upsize
 
 
+def _calc_drawing_params_by_random(
+    images: list[np.ndarray],
+    shape: CARD_SHAPE,
+    width: int,
+    height: int,
+    margin: int,
+    show: bool,
+) -> list[dict[str, Any]]:
+    """画像をランダム配置するパラメータを計算
+
+    Args:
+        images (list[np.ndarray]): 配置する画像のリスト
+        shape (CARD_SHAPE): カードの形状（円または矩形）
+        width (int): カードの幅
+        height (int): カードの高さ（円の場合は無視される）
+        margin (int): カード外縁の余白
+        show (bool): 計算中の画像を表示するかどうか
+
+    Returns:
+        list[dict[str, Any]]: 各画像の配置パラメータのリスト
+    """
+    # 描画位置を決定するための小さなキャンバス(短辺180)を準備
+    scl_canv = 180 / min(width, height)
+    w_scl_canv = int(width * scl_canv)
+    h_scl_canv = int(height * scl_canv)
+    m_scl_canv = int(np.ceil(margin * scl_canv))  # margin > 0 の場合には1以上になるようにceil
+
+    # 画像1枚当たりの基本サイズを指定
+    n_img_in_card = len(images)
+    img_base_size = int(np.ceil(max(h_scl_canv, w_scl_canv) / np.ceil(np.sqrt(n_img_in_card))))
+
+    while True:
+        params: list[dict[str, Any]] = []
+
+        # マスク画像に描画するパラメータ
+        # キャンバスの作成
+        canvas = _make_canvas(shape, w_scl_canv, h_scl_canv, m_scl_canv, True)
+        for img in images:
+            # 元画像の余白を除去して外接矩形でトリミング
+            _img = _trim_bb_image(img)
+            h_im_trim, w_im_trim = _img.shape[:2]
+            h_im_trim = np.ceil(h_im_trim * scl_canv)
+            w_im_trim = np.ceil(w_im_trim * scl_canv)
+
+            # ランダムにリサイズ、回転、配置し、重複するならパラメータを変えて最大n_max回やり直し
+            # (n_max回試してもダメなら最初からやり直し)
+            n_max = 100
+            cur_canv = canvas.copy()
+            ok = False
+            for _ in range(n_max):
+                _canv = cur_canv.copy()
+
+                # リサイズ, 移動, 回転のパラメータをランダムに決定
+                _scale_base_size = img_base_size / max(h_im_trim, w_im_trim)  # 標準サイズを基準にさらにリサイズ
+                scale = random.uniform(0.5, 0.8) * _scale_base_size
+                h_im_resized = h_im_trim * scale
+                w_im_resized = w_im_trim * scale
+                center = [
+                    random.randint(0, int(w_scl_canv - w_im_resized)) + w_im_resized / 2,
+                    random.randint(0, int(h_scl_canv - h_im_resized)) + h_im_resized / 2,
+                ]
+                angle = random.randint(0, 360)
+
+                # リサイズ, 回転, 平行移動を矩形の4頂点に対して計算
+                lt = _rotate_2d((-w_im_resized / 2, -h_im_resized / 2), angle)
+                rt = _rotate_2d((+w_im_resized / 2, -h_im_resized / 2), angle)
+                lb = _rotate_2d((+w_im_resized / 2, +h_im_resized / 2), angle)
+                rb = _rotate_2d((-w_im_resized / 2, +h_im_resized / 2), angle)
+
+                lt = (lt[0] + center[0], lt[1] + center[1])
+                rt = (rt[0] + center[0], rt[1] + center[1])
+                lb = (lb[0] + center[0], lb[1] + center[1])
+                rb = (rb[0] + center[0], rb[1] + center[1])
+
+                # 画像貼り付け位置にマスクを描画
+                mask_img = np.zeros(_canv.shape[:2], dtype=np.uint8)
+                _pts = np.array([lt, rt, lb, rb], dtype=int)
+                cv2.fillConvexPoly(mask_img, _pts, OVERLAP_VAL, lineType=cv2.LINE_4)
+
+                # キャンバスに重畳
+                _canv += mask_img
+
+                if show:
+                    cv2.imshow("canv_overlap", _canv)
+                    cv2.waitKey(1)
+
+                # 重なりの確認
+                if (_canv > OVERLAP_VAL).sum() == 0:
+                    ok = True
+                    canvas = _canv
+
+                    p = {"scale": scale, "center_xy": (np.array(center) / scl_canv).tolist(), "rotation_deg": angle}
+                    params.append(p)
+
+                    break
+
+            if not ok:
+                break
+
+        if ok:
+            break
+
+    return params
+
+
 def _layout_random(
-    shape: CARD_SHAPE, width: int, height: int, margin: int, images: list[np.ndarray], show: bool
+    shape: CARD_SHAPE,
+    width: int,
+    height: int,
+    margin: int,
+    images: list[np.ndarray],
+    show: bool,
 ) -> np.ndarray:
     """画像を重ならないようにランダムに配置する
 
@@ -413,86 +523,28 @@ def _layout_random(
         images (list[np.ndarray]): 配置画像ソース
         show (bool): 計算中の画像を画面表示するならTrue
     """
-    # TODO: 高速化 (_layout_voronoiと同様)
+    # 画像毎の描画位置決め
+    draw_params_images = _calc_drawing_params_by_random(
+        images,
+        shape,
+        width,
+        height,
+        margin,
+        show,
+    )
 
-    # 画像1枚当たりの基本サイズを指定
-    n_img_in_card = len(images)
-    img_base_size = int(np.ceil(max(height, width) / np.ceil(np.sqrt(n_img_in_card))))
+    # 描画
+    card_image = _render_images_with_params(
+        images,
+        shape,
+        width,
+        height,
+        margin,
+        draw_params_images,
+        show,
+    )
 
-    while True:
-        # マスク画像に描画するパラメータ
-        # キャンバスの作成
-        canvas = _make_canvas(shape, width, height, margin, False, draw_black_in_rendering_area=True)
-        canv_ol = _make_canvas(shape, width, height, margin, True)
-        for img in images:
-            # 元画像の余白を除去して外接矩形でトリミング
-            im_bin = np.full(img.shape[:2], OVERLAP_VAL, dtype=np.uint8)
-
-            # 長辺を基本サイズに拡縮
-            scale = img_base_size / max(img.shape[0], img.shape[1])
-            im_base = cv2.resize(img, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
-            im_bin_base = cv2.resize(im_bin, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-
-            # ランダムにリサイズ、回転、配置し、重複するならパラメータを変えて最大n_max回やり直し
-            # (n_max回試してもダメなら最初からやり直し)
-            n_max = 100
-            cur_canv = canvas.copy()
-            cur_canv_ol = canv_ol.copy()
-            ok = False
-            for _ in range(n_max):
-                _canv = cur_canv.copy()
-                _canv_ol = cur_canv_ol.copy()
-                # ランダムにリサイズ
-                scale = random.uniform(
-                    0.5, 0.8
-                )  # NOTE: 小さめの方が敷き詰めるのに時間がかからないが余白が増えるので適宜調整
-                _im_scl = cv2.resize(im_base, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
-                _im_bin_scl = cv2.resize(im_bin_base, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-
-                # ランダムに回転
-                angle = random.randint(0, 360)
-                _im_rot = rotate_fit(
-                    _im_scl, angle, flags=cv2.INTER_CUBIC, borderValue=WHITE
-                )  # 境界を白にしないと枠が残る
-                _im_bin_rot = rotate_fit(_im_bin_scl, angle, flags=cv2.INTER_NEAREST)
-
-                # ランダムに平行移動
-                dy = random.randint(0, height - _im_rot.shape[0])
-                dx = random.randint(0, width - _im_rot.shape[1])
-                mv_mat = np.float32([[1, 0, dx], [0, 1, dy]])
-                im_rnd = cv2.warpAffine(
-                    _im_rot, mv_mat, (width, height), flags=cv2.INTER_CUBIC, borderValue=WHITE
-                )  # 境界を白にしないと枠が残る
-                im_bin_rnd = cv2.warpAffine(_im_bin_rot, mv_mat, (width, height), flags=cv2.INTER_NEAREST)
-
-                # キャンバスに重畳 (マスク処理)
-                _canv = np.where(im_bin_rnd[:, :, np.newaxis] != 0, im_rnd, _canv)
-                _canv_ol += im_bin_rnd
-
-                if show:
-                    cv2.imshow("canv", _canv)
-                    cv2.imshow("canv_overlap", _canv_ol)
-                    cv2.waitKey(1)
-
-                # 重なりの確認
-                if (_canv_ol > OVERLAP_VAL).sum() == 0:
-                    ok = True
-
-                    canvas = _canv
-                    canv_ol = _canv_ol
-                    break
-
-            if not ok:
-                break
-        if ok:
-            # 最終キャンバスに重畳 (マスク処理)
-            canvas = np.where(canv_ol[:, :, np.newaxis] == 0, WHITE, canvas).astype(np.uint8)
-            break
-
-    if show:
-        cv2.destroyAllWindows()
-
-    return canvas
+    return card_image
 
 
 def _trim_bb_image(image: np.ndarray) -> np.ndarray:
@@ -1550,11 +1602,15 @@ def make_image_of_thumbnails_with_names(
             _draw_frame_of_card(width, height, card_shape, card)
 
     if show:
+        win_names = []
         for i, card in enumerate(cards):
-            cv2.imshow(f"#{i}", card)
+            win_name = f"#{i}"
+            cv2.imshow(win_name, card)
+            win_names.append(win_name)
         cv2.waitKey(show_wait_ms)
 
-        cv2.destroyAllWindows()
+        for name in win_names:
+            cv2.destroyWindow(name)
 
     return cards
 
