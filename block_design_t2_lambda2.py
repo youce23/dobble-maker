@@ -58,10 +58,11 @@ def _check_symmetric_bibd(deck_m: np.ndarray, k: int, lambda_: Literal[1, 2]):
     assert np.all(np.diag(product) == k) and np.all(product[~np.eye(product.shape[0], dtype=bool)] == lambda_)
 
 
-def _deck_to_deck_matrix(deck: Sequence[Sequence[int]]) -> np.ndarray:
-    v = len(set([s for card in deck for s in card]))
+def _deck_to_deck_matrix(deck: Sequence[Sequence[int]], *, n_cards: int = 0, n_symbols: int = 0) -> np.ndarray:
+    if n_cards < 1 or n_symbols < 1:
+        n_cards = n_symbols = len(set([s for card in deck for s in card]))
 
-    deck_m = np.zeros((v, v), dtype=int)
+    deck_m = np.zeros((n_cards, n_symbols), dtype=int)
     for card_i, card in enumerate(deck):
         for symbol_i in card:
             deck_m[card_i, symbol_i] = 1
@@ -159,7 +160,7 @@ def calc_symmetric_bibd_brute_force(lambda_: Literal[1, 2], k: int) -> tuple[np.
     deck_patterns_yield = combinations(card_patterns_yield, b)
     result_deck_m = None
     for deck in tqdm(deck_patterns_yield, desc="デッキ構築", total=deck_patterns_n):
-        deck_m = _deck_to_deck_matrix(list(deck))
+        deck_m = _deck_to_deck_matrix(list(deck), n_cards=v, n_symbols=v)
 
         if not all(deck_m.sum(axis=0) == r):
             # デッキ全体での各シンボルの出現回数がrであることを確認
