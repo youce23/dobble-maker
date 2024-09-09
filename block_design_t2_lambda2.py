@@ -18,7 +18,7 @@ t = 2, λ = 2において、例えば k = 3の場合、b = v = 4, r = k = 3で�
 列方向の合計値: シンボルの出現回数 r
 
 上記行列を D (Deck) として、任意の2つのカード(行)で共通するシンボル(列)の総数が2である、ということは
-  D * D^T の対角成分が k (行方向の合計値) , 非対角成分が 2
+    D * D^T の対角成分が k (行方向の合計値) , 非対角成分が 2
 である、ことが条件となる
 
 全シンボル数をv, 1カードが有するシンボル数をkとするため、カードの種類数は Combination(v, k) となる
@@ -29,16 +29,16 @@ t=2つのシンボルがデッキ内でλ=2回同時に出現するデッキを�
 t=2であるためBIBDとして成立する。なお、t=2, λ=2は特にbiplaneと呼ばれる。
 BIBDであれば対称性(b=v)の制約を付与できるため、カード総数b = シンボル数vとする
 ブロックデザインの定義より
-  v * r = b * k  (1)
-  λ * C(v, t) = b * C(k, t)  (2)
+    v * r = b * k  (1)
+    λ * C(v, t) = b * C(k, t)  (2)
 BIBD (t=2) であるため、(2)を展開して
-  λ * (v-1) = r * (k - 1)  (3)
+    λ * (v-1) = r * (k - 1)  (3)
 対称性の制約を付与して
-  b = v  (4)
+    b = v  (4)
 (1)に(4)を代入して
-  r = k  (5)
+    r = k  (5)
 ここではλ = 2について考えるため、(3)に代入して
-  v = k * (k -1) / 2 + 1  (6)
+    v = k * (k -1) / 2 + 1  (6)
 
 """
 
@@ -50,7 +50,7 @@ import numpy as np
 from tqdm import tqdm
 
 
-def _check_symmetric_bibd(deck_m: np.ndarray, k: int, lambda_: Literal[1, 2]):
+def _check_symmetric_bibd(deck_m: np.ndarray, k: int, lambda_: Literal[1, 2]) -> None:
     r = k
 
     assert all(deck_m.sum(axis=0) == r)  # デッキ全体での各シンボルの出現回数がrであることを確認
@@ -440,7 +440,7 @@ def SymmetricBIBD_L2_K13() -> (
     return deck_m, deck
 
 
-def calc_symmetric_bibd_brute_force(lambda_: Literal[1, 2], k: int) -> tuple[np.ndarray, list[tuple[int, ...]]] | None:
+def _calc_symmetric_bibd_brute_force(lambda_: Literal[1, 2], k: int) -> tuple[np.ndarray, list[tuple[int, ...]]] | None:
     """対称BIBDを総当たりで解く
 
     NOTE: 非常に時間がかかるため未使用
@@ -480,7 +480,7 @@ def calc_symmetric_bibd_brute_force(lambda_: Literal[1, 2], k: int) -> tuple[np.
     return result_deck_m, result_deck
 
 
-def calc_symmetric_bibd_lambda2(k: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[np.ndarray, Sequence[Sequence[int]]]:
+def _calc_symmetric_bibd_lambda2(k: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[np.ndarray, Sequence[Sequence[int]]]:
     match k:
         case 2:
             return SymmetricBIBD_L2_K2()
@@ -502,10 +502,25 @@ def calc_symmetric_bibd_lambda2(k: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[n
             raise NotImplementedError
 
 
+def make_dobble22_deck(n_symbols_per_card: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[list[list[int]], int]:
+    """各カードに記載するシンボルの一覧を生成
+
+    2枚のカードに2つの共通するシンボルが出現する拡張ドブル版
+
+    Args:
+        n_symbols_per_card (int): カード1枚あたりに記載するシンボル数
+
+    Returns:
+        list[list[int]]: 各カードに記載するシンボル番号
+        int: 全シンボル数
+    """
+    _, deck = _calc_symmetric_bibd_lambda2(n_symbols_per_card)
+    deck = [list(card) for card in deck]
+
+    return deck, len(deck)
+
+
 if __name__ == "__main__":
     for k in (2, 3, 4, 5, 6, 9, 11, 13):
-        ret = calc_symmetric_bibd_lambda2(k)
-
-        deck_m, deck = ret
-        print(deck_m)
-        print(deck)
+        deck, n_symbols = make_dobble22_deck(k)
+        print(f"k={k}, v={n_symbols}, deck={deck}")
