@@ -18,6 +18,7 @@ import pypdf
 import tqdm
 from PIL import Image, ImageDraw, ImageFont
 
+from block_design_t2_lambda2 import make_dobble22_deck
 from cv2_image_utils import imread_japanese, imwrite_japanese
 from voronoi import cvt
 
@@ -1835,6 +1836,10 @@ def main():
     output_dir = "output"  # 出力画像ディレクトリ
     pdf_name = "card.pdf"  # 出力するPDF名
     params_name = "parameters.json"  # 実行時のパラメータ値を出力するjson名
+    # デッキの設定
+    deck_type: Literal["normal", "twin-symbols", "triple-cards"] = "normal"
+    if deck_type == "triple-cards":
+        raise NotImplementedError
     # カードの設定
     n_symbols_per_card: int = 5  # カード1枚当たりのシンボル数
     card_shape: CARD_SHAPE = CARD_SHAPE.CIRCLE
@@ -1873,6 +1878,7 @@ def main():
     # パラメータをjsonで出力
     # ======================
     params = {
+        "deck_type": deck_type,
         "n_symbols_per_card": n_symbols_per_card,
         "card_shape": card_shape.name,
         "card_img_size": card_img_size,
@@ -1898,7 +1904,7 @@ def main():
     # 前処理
     # ========
     # 入力チェック
-    if not is_valid_n_symbols_per_card(n_symbols_per_card):
+    if deck_type == "normal" and not is_valid_n_symbols_per_card(n_symbols_per_card):
         raise ValueError(
             f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) が「2 あるいは (任意の素数の累乗 + 1)」ではない"
         )
@@ -1911,7 +1917,18 @@ def main():
     # メイン
     # ========
     # 各カード毎の組み合わせを生成
-    pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
+    if deck_type == "normal":
+        pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
+    elif deck_type == "twin-symbols":
+        try:
+            pairs, n_symbols = make_dobble22_deck(n_symbols_per_card)
+        except ValueError as e:
+            raise ValueError(
+                f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) は「2, 3, 4, 5, 6, 9, 11, 13」のいずれかでなければならない"
+            ) from e
+    else:
+        raise NotImplementedError
+
     save_card_list_to_csv(output_dir, pairs)  # 組み合わせのcsvを出力
 
     # image_dirからn_symbols数の画像を取得
