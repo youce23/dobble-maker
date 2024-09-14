@@ -514,11 +514,17 @@ def make_dobble22_deck(n_symbols_per_card: Literal[2, 3, 4, 5, 6, 9, 11, 13]) ->
         list[list[int]]: 各カードに記載するシンボル番号
         int: 全シンボル数
     """
-    # TODO: 2つの通常ドブルのガッチャンコ方式と組み合わせることで引数の制限を緩和する
+    # TODO:
+    # 2つの通常ドブルのガッチャンコ方式と組み合わせることで引数の制限を緩和する
+    # その場合、n_cards == n_symbolsは一致しなくなるため、それを許容するフラグが指定された場合のみその動作を許容するものとする
     _, deck = _calc_symmetric_bibd_lambda2(n_symbols_per_card)
     deck = [list(card) for card in deck]
 
-    return deck, len(deck)
+    n_cards = len(deck)
+    n_symbols = len(set(symbol for card in deck for symbol in card))
+    assert n_cards == n_symbols  # カード枚数とシンボル数は同じ
+
+    return deck, n_symbols
 
 
 if __name__ == "__main__":
