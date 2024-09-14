@@ -79,7 +79,8 @@ def generate_dobble_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple
         orth_vec = orth_vecs[0]
         assert isinstance(orth_vec, galois.FieldArray)
 
-        # 選択した3本のベクトル = 選択した3枚のカード, 補空間 = 共通シンボル, と解釈して記憶
+        # 選択した(d-1)本のベクトル = 選択した(d-1)枚のカード, 補空間 = 共通シンボル, と解釈して
+        # 各カードが保有するシンボルを記憶
         symbol_id = sum(int(a) * q**i for i, a in enumerate(orth_vec))
         for card_id in combi:
             deck[card_id].add(symbol_id)
