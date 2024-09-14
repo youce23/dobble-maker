@@ -499,7 +499,7 @@ def _calc_symmetric_bibd_lambda2(k: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[
         case 13:
             return SymmetricBIBD_L2_K13()
         case _:
-            raise NotImplementedError
+            raise ValueError
 
 
 def make_dobble22_deck(n_symbols_per_card: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[list[list[int]], int]:
@@ -514,6 +514,7 @@ def make_dobble22_deck(n_symbols_per_card: Literal[2, 3, 4, 5, 6, 9, 11, 13]) ->
         list[list[int]]: 各カードに記載するシンボル番号
         int: 全シンボル数
     """
+    # TODO: 2つの通常ドブルのガッチャンコ方式と組み合わせることで引数の制限を緩和する
     _, deck = _calc_symmetric_bibd_lambda2(n_symbols_per_card)
     deck = [list(card) for card in deck]
 
