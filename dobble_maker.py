@@ -19,6 +19,7 @@ import tqdm
 from PIL import Image, ImageDraw, ImageFont
 
 from block_design_t2_lambda2 import make_dobble22_deck
+from block_design_t3_lambda1 import make_dobble31_deck
 from cv2_image_utils import imread_japanese, imwrite_japanese
 from voronoi import cvt
 
@@ -1838,10 +1839,9 @@ def main():
     params_name = "parameters.json"  # 実行時のパラメータ値を出力するjson名
     # デッキの設定
     deck_type: Literal["normal", "twin-symbols", "triple-cards"] = "normal"
-    if deck_type == "triple-cards":
-        raise NotImplementedError
     # カードの設定
     n_symbols_per_card: int = 5  # カード1枚当たりのシンボル数
+    n_cards: int = 26  # 全カード数 ※ deck_type == "triple-cards" の場合のみ参照される
     card_shape: CARD_SHAPE = CARD_SHAPE.CIRCLE
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
@@ -1917,17 +1917,25 @@ def main():
     # メイン
     # ========
     # 各カード毎の組み合わせを生成
-    if deck_type == "normal":
-        pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
-    elif deck_type == "twin-symbols":
-        try:
-            pairs, n_symbols = make_dobble22_deck(n_symbols_per_card)
-        except ValueError as e:
-            raise ValueError(
-                f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) は「2, 3, 4, 5, 6, 9, 11, 13」のいずれかでなければならない"
-            ) from e
-    else:
-        raise NotImplementedError
+    match deck_type:
+        case "normal":
+            pairs, n_symbols = make_dobble_deck(n_symbols_per_card)
+        case "twin-symbols":
+            try:
+                pairs, n_symbols = make_dobble22_deck(n_symbols_per_card)
+            except ValueError as e:
+                raise ValueError(
+                    f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) は「2, 3, 4, 5, 6, 9, 11, 13」のいずれかでなければならない"
+                ) from e
+        case "triple-cards":
+            try:
+                pairs, n_symbols = make_dobble31_deck((n_symbols_per_card, n_cards))
+            except ValueError as e:
+                raise ValueError(
+                    f"カード1枚当たりのシンボル数 ({n_symbols_per_card}) と 全カード数 ({n_cards}) が条件を満たしていない"
+                ) from e
+        case _:
+            raise ValueError
 
     save_card_list_to_csv(output_dir, pairs)  # 組み合わせのcsvを出力
 

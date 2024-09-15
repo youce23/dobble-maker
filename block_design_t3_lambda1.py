@@ -22,6 +22,7 @@
 """
 
 from itertools import combinations
+from typing import Literal
 
 import galois
 import numpy as np
@@ -180,12 +181,8 @@ def generate_code_26_22_4_GF5() -> tuple[galois.FieldArray, galois.FieldArray]:
     return gf(G), gf(H)
 
 
-def generate_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple[list[list[int]], int, int]:
+def generate_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple[list[list[int]], int, int, int]:
     """パリティ検査行列に従ってドブルデッキ構築
-
-    以下の制約がある
-    - デッキ内の各カードに記載されるシンボル数は一定ではない
-    - 各シンボルの出現回数は一定ではない
 
     Args:
         H: パリティ検査行列
@@ -194,6 +191,7 @@ def generate_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple[list[l
         list[list[int]: デッキ
         int: 全シンボル数
         int: 全カード数
+        int: カード1枚当たりのシンボル数
 
     """
     q = H._order
@@ -231,14 +229,20 @@ def generate_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple[list[l
     symbol_ids_map = {symbol_id: i for i, symbol_id in enumerate(all_symbol_ids)}
     sorted_deck = [sorted([symbol_ids_map[id] for id in card]) for card in deck]
 
+    n_symbols_per_card = len(sorted_deck[0])
     n_symbols = len(all_symbol_ids)
     n_cards = len(sorted_deck)
 
-    return sorted_deck, n_symbols, n_cards
+    assert all([len(card) == n_symbols_per_card for card in deck])
+
+    return sorted_deck, n_symbols, n_cards, n_symbols_per_card
 
 
-def _check_columns_independent_of_parity_check_matrix(H: galois.FieldArray) -> None:
-    """検査行列 H の(d-1)本の列ベクトルが線形独立であるかを確認"""
+def _check_columns_independent_of_parity_check_matrix(H: galois.FieldArray) -> bool:
+    """検査行列 H の(d-1)本の列ベクトルが線形独立であるかを確認
+
+    全組み合わせが線形独立ならTrue
+    """
     d, n = H.shape
 
     columns = list(combinations(range(H.shape[1]), d - 1))
@@ -249,19 +253,30 @@ def _check_columns_independent_of_parity_check_matrix(H: galois.FieldArray) -> N
         n_independent += rank == min(selected.shape)
     print(f"Combination({n}, {d-1}) = {len(columns)}個のうち {n_independent} 個の組み合わせが線形独立")
 
-    return
+    return n_independent == len(columns)
 
 
-def main():
-    # 変数定義
-    n = 26  # Code length, 上記のanswerにおける m
-    k = 22  # Dimension, 上記のanswerにおける m-(n+1)
-    d = 4  # Minimum distance, 上記のanswerにおける n+1
-    q = 5  # 位数
+def make_dobble31_deck(param: tuple[Literal[30], Literal[26]]) -> tuple[list[list[int]], int]:
+    """各カードに記載するシンボルの一覧を生成
 
-    # 行列生成
-    match (n, k, d, q):
-        case (26, 22, 4, 5):
+    3枚のカードに1つの共通するシンボルが出現する拡張ドブル版
+
+    Args:
+        param[0]: カード1枚あたりに記載するシンボル数
+        param[1]: 全カード数
+
+    Returns:
+        list[list[int]]: デッキ (各カードに記載するシンボル番号)
+        int: 全シンボル数
+    """
+    n_symbols_per_card, n_cards = param
+    match (n_symbols_per_card, n_cards):
+        # n: Code length, 上記のanswerにおける m
+        # k: Dimension, 上記のanswerにおける m-(n+1)
+        # d: Minimum distance, 上記のanswerにおける n+1
+        # q: 位数
+        case (30, 26):
+            n, k, d, q = (26, 22, 4, 5)  # noqa qは未使用だが記録目的で記載
             G, H = generate_code_26_22_4_GF5()
         case _:
             raise ValueError
@@ -272,10 +287,24 @@ def main():
     assert np.linalg.matrix_rank(G) == k
     assert np.linalg.matrix_rank(H) == d
     assert np.all(G.dot(H.T) == 0)
-    _check_columns_independent_of_parity_check_matrix(H)
+    assert _check_columns_independent_of_parity_check_matrix(H)
 
-    # デッキを構築
-    deck, n_symbols, n_cards = generate_deck_from_parity_check_matrix(H)
+    deck, n_symbols, _, _ = generate_deck_from_parity_check_matrix(H)
+
+    return deck, n_symbols
+
+
+def main() -> None:
+    n_symbols_per_card, n_card = (30, 26)
+
+    deck, n_symbols = make_dobble31_deck((n_symbols_per_card, n_card))
+    print(f"n_symbols_per_card: {n_symbols_per_card}")
+    print(f"n_card: {n_card}")
+    print(f"n_symbols: {n_symbols}")
+    print("deck:")
+    print(deck)
+
+    return
 
 
 if __name__ == "__main__":
