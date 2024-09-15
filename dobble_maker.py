@@ -1841,7 +1841,7 @@ def main():
     deck_type: Literal["normal", "twin-symbols", "triple-cards"] = "normal"
     # カードの設定
     n_symbols_per_card: int = 5  # カード1枚当たりのシンボル数
-    n_cards: int = 26  # 全カード数 ※ deck_type == "triple-cards" の場合のみ参照される
+    n_cards: int | None = None  # 全カード数 ※ deck_type == "triple-cards" の場合のみ参照される
     card_shape: CARD_SHAPE = CARD_SHAPE.CIRCLE
     card_img_size = 1500  # カード1枚当たりの画像サイズ (intなら円、(幅, 高さ) なら矩形で作成) [pix]
     card_margin = 20  # カード1枚の余白サイズ [pix]
@@ -1931,6 +1931,7 @@ def main():
                 ) from e
         case "triple-cards":
             try:
+                assert n_cards is not None
                 pairs, n_symbols = make_dobble31_deck((n_symbols_per_card, n_cards))
             except ValueError as e:
                 raise ValueError(
