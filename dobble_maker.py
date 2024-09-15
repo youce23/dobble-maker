@@ -1897,6 +1897,8 @@ def main():
         "shuffle": shuffle,
         "seed": seed,
     }
+    if deck_type == "triple-cards":
+        params["n_cards"] = n_cards
     with open(output_dir + os.sep + params_name, mode="w", encoding="utf_8") as f:
         json.dump(params, f, indent=2, ensure_ascii=False)
 
