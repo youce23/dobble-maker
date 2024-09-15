@@ -228,6 +228,7 @@ def generate_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple[list[l
     all_symbol_ids = sorted(all_symbol_ids)
     symbol_ids_map = {symbol_id: i for i, symbol_id in enumerate(all_symbol_ids)}
     sorted_deck = [sorted([symbol_ids_map[id] for id in card]) for card in deck]
+    sorted_deck = sorted(sorted_deck)
 
     n_symbols_per_card = len(sorted_deck[0])
     n_symbols = len(all_symbol_ids)
