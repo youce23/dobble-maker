@@ -10,10 +10,9 @@ import cv2
 import img2pdf
 import numpy as np
 import pypdf
-from PIL import Image, ImageDraw, ImageFont
 
 from card_drawer.voronoi import cvt
-from cv2_image_utils import imread_japanese, imwrite_japanese
+from cv2_image_utils import cv2_putText, imread_japanese, imwrite_japanese
 
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -510,7 +509,7 @@ def _render_images_with_params(
         img_resized = cv2.resize(img_trim, None, fx=scale, fy=scale, interpolation=_get_interpolation(scale))
 
         # 画像を回転
-        img_rotated = rotate_fit(img_resized, -rotation_deg, flags=cv2.INTER_CUBIC, borderValue=WHITE)
+        img_rotated = _rotate_fit(img_resized, -rotation_deg, flags=cv2.INTER_CUBIC, borderValue=WHITE)
 
         # 画像をキャンバスに重畳
         dx = center[0] - img_rotated.shape[1] / 2
@@ -698,7 +697,7 @@ def layout_images_randomly_wo_overlap(
     return canvas
 
 
-def rotate_fit(
+def _rotate_fit(
     img: np.ndarray,
     angle: int,
     *,
@@ -834,7 +833,7 @@ def load_images(
     return images, image_paths
 
 
-def merge_pdf(pdf_paths: list[str], output_pdf: str):
+def _merge_pdf(pdf_paths: list[str], output_pdf: str):
     """PDFファイルをマージして新たなPDFファイルを出力
 
     Args:
@@ -852,7 +851,7 @@ def merge_pdf(pdf_paths: list[str], output_pdf: str):
     writer.close()
 
 
-def centering_img(src: np.ndarray) -> np.ndarray:
+def _centering_img(src: np.ndarray) -> np.ndarray:
     """入力画像 src の画像領域を中心に配置した画像を返す"""
     assert src.shape[2] == 3  # 3チャネルのカラー画像とする
 
@@ -936,7 +935,7 @@ def images_to_pdf(
                 # 収まらないならPDF出力してから次のキャンバスの先頭に描画
                 tmp_name = tmpdir.name + os.sep + f"{i_pdf}.png"
                 pdf_name = tmpdir.name + os.sep + f"{i_pdf}.pdf"
-                _out_img = centering_img(canvas) if centering else canvas
+                _out_img = _centering_img(canvas) if centering else canvas
                 imwrite_japanese(tmp_name, _out_img)
                 with open(pdf_name, "wb") as f:
                     bytes = img2pdf.convert(tmp_name, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi)))
@@ -954,7 +953,7 @@ def images_to_pdf(
     if (canvas != 255).any():
         tmp_name = tmpdir.name + os.sep + f"{i_pdf}.png"
         pdf_name = tmpdir.name + os.sep + f"{i_pdf}.pdf"
-        _out_img = centering_img(canvas) if centering else canvas
+        _out_img = _centering_img(canvas) if centering else canvas
         imwrite_japanese(tmp_name, _out_img)
         with open(pdf_name, "wb") as f:
             bytes = img2pdf.convert(tmp_name, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi)))
@@ -966,154 +965,9 @@ def images_to_pdf(
 
     # すべてのPDFを1つのPDFにまとめて結合
     pdfs = [tmpdir.name + os.sep + f"{i}.pdf" for i in range(n_pdf)]
-    merge_pdf(pdfs, pdf_path)
+    _merge_pdf(pdfs, pdf_path)
 
     return
-
-
-def cv2_putText(
-    img: np.ndarray,
-    text: str,
-    org: tuple[int, int],
-    font: str,
-    font_scale: None | int,
-    color: str | tuple,
-    anchor: str,
-    *,
-    text_w: None | int = None,
-    text_h: None | int = None,
-    align: Literal["left", "center", "right"] = "left",
-    font_index: int = 0,
-    stroke_width: int = 0,
-    stroke_fill: None | tuple = None,
-):
-    """日本語テキストの描画
-
-    参考:
-        OpenCVで日本語フォントを描画する を関数化する を最新にする,
-        https://qiita.com/mo256man/items/f07bffcf1cfedf0e42e0
-
-    Args:
-        img: 対象画像 (上書きされる)
-        text: 描画テキスト
-        org: 描画位置 (x, y), 意味はanchorにより変わる
-        font: フォントファイルパス (*.ttf | *.ttc)
-        font_scale:
-            フォントサイズ,
-            Noneの場合はtext_wあるいはtext_hの指定が必須
-        color: 描画色
-        anchor (str):
-            2文字で指定する, 1文字目はx座標について, 2文字目はy座標について以下のルールで指定する
-            1文字目: "l", "m", "r" のいずれかを指定. それぞれテキストボックスの 左端, 中心, 右端 を意味する
-            2文字目: "t", "m", "b" のいずれかを指定. それぞれテキストボックスの 上端, 中心, 下端 を意味する
-        text_w:
-            描画するテキスト幅 [pix]
-            このサイズ以下になるギリギリのサイズで描画する
-            (font_scaleがNoneの場合のみ有効)
-        text_h:
-            描画するテキスト高さ [pix]
-            このサイズ以下になるギリギリのサイズで描画する
-            (font_scaleがNoneの場合のみ有効)
-        max_text_h:
-        align:
-            text に複数行(改行文字"\n"を含む文字列)を指定した場合の描画方法
-            "left": 左揃え (default)
-            "center": 中央揃え
-            "right": 右揃え
-        font_index: フォントファイルがttcの場合は複数フォントを含む。その中で使用するフォントのインデックスを指定する。
-        stroke_width: 文字枠の太さ
-        stroke_fill: 文字枠の色
-    """
-    assert len(anchor) == 2
-
-    # デフォルトの行間は広いので調整
-    spacing: int = 0  # 行間のピクセル数
-
-    # テキスト描画域を取得
-    x, y = org
-    if font_scale is not None:
-        fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
-        dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
-        xL, yT, xR, yB = dummy_draw.multiline_textbbox(
-            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
-        )
-    else:
-        assert type(text_w) is int or type(text_h) is int
-        font_scale = 1
-        while True:
-            fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
-            dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
-            xL, yT, xR, yB = dummy_draw.multiline_textbbox(
-                (0, 0), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
-            )
-            bb_w = xR - xL
-            bb_h = yB - yT
-            if type(text_w) is int and bb_w > text_w:
-                break
-            elif type(text_h) is int and bb_h > text_h:
-                break
-            font_scale += 1
-        font_scale -= 1
-        if font_scale < 1:
-            raise ValueError("指定のサイズでは描画できない")
-        fontPIL = ImageFont.truetype(font=font, size=font_scale, index=font_index)
-        dummy_draw = ImageDraw.Draw(Image.new("L", (0, 0)))
-        xL, yT, xR, yB = dummy_draw.multiline_textbbox(
-            (x, y), text, font=fontPIL, align=align, stroke_width=stroke_width, spacing=spacing
-        )
-
-    # 少なくともalignを"center"にした場合にxL, xRがfloatになることがあったため、intにキャスト
-    xL, yT, xR, yB = int(np.floor(xL)), int(np.floor(yT)), int(np.ceil(xR)), int(np.ceil(yB))
-
-    # anchorによる座標の変換
-    img_h, img_w = img.shape[:2]
-    if anchor[0] == "l":
-        offset_x = xL - x
-    elif anchor[0] == "m":
-        offset_x = (xR + xL) // 2 - x
-    elif anchor[0] == "r":
-        offset_x = xR - x
-    else:
-        raise NotImplementedError
-
-    if anchor[1] == "t":
-        offset_y = yT - y
-    elif anchor[1] == "m":
-        offset_y = (yB + yT) // 2 - y
-    elif anchor[1] == "b":
-        offset_y = yB - y
-    else:
-        raise NotImplementedError
-
-    x0, y0 = x - offset_x, y - offset_y
-    xL, yT = xL - offset_x, yT - offset_y
-    xR, yB = xR - offset_x, yB - offset_y
-
-    # 画面外なら何もしない
-    if xR <= 0 or xL >= img_w or yB <= 0 or yT >= img_h:
-        print("out of bounds")
-        return img
-
-    # ROIを取得する
-    x1, y1 = max([xL, 0]), max([yT, 0])
-    x2, y2 = min([xR, img_w]), min([yB, img_h])
-    roi = img[y1:y2, x1:x2]
-
-    # ROIをPIL化してテキスト描画しCV2に戻る
-    roiPIL = Image.fromarray(roi)
-    draw = ImageDraw.Draw(roiPIL)
-    draw.text(
-        (x0 - x1, y0 - y1),
-        text,
-        color,
-        fontPIL,
-        align=align,
-        stroke_width=stroke_width,
-        stroke_fill=stroke_fill,
-        spacing=spacing,
-    )
-    roi = np.array(roiPIL, dtype=np.uint8)
-    img[y1:y2, x1:x2] = roi
 
 
 def _select_font() -> tuple[str, int]:
