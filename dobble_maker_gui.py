@@ -17,7 +17,6 @@ from card_drawer.draw_card import (
 )
 from cv2_image_utils import imwrite_japanese
 from dobble_maker import (
-    is_valid_n_symbols_per_card,
     load_image_list,
     make_dobble_deck,
     save_card_list_to_csv,
@@ -104,7 +103,7 @@ class Application(tk.Frame):
         shuffle_entry = tk.Checkbutton(self.master, variable=self.shuffle)
 
         # カード当たりのシンボル数を入力するリスト
-        n_symbols_vals = [x for x in range(31) if is_valid_n_symbols_per_card(x)]
+        n_symbols_vals = [2, 3, 4, 5, 6, 8, 9, 10, 12, 14, 17, 18, 20, 24, 26, 28, 30]
         self.n_symbols = tk.IntVar(value=5)
         n_symbols_label = tk.Label(self.master, text="カード当たりのシンボル数")
         n_symbols_entry = ttk.Combobox(
