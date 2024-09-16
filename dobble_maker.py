@@ -18,8 +18,8 @@ import pypdf
 import tqdm
 from PIL import Image, ImageDraw, ImageFont
 
-from block_design_t2_lambda2 import make_dobble22_deck
-from block_design_t3_lambda1 import make_dobble31_deck
+from deck_generator.block_design_t2_lambda2 import make_dobble22_deck
+from deck_generator.block_design_t3_lambda1 import make_dobble31_deck
 from cv2_image_utils import imread_japanese, imwrite_japanese
 from voronoi import cvt
 
