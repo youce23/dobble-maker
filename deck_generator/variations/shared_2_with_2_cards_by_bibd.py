@@ -499,7 +499,9 @@ def _calc_symmetric_bibd_lambda2(k: int) -> tuple[np.ndarray, Sequence[Sequence[
         case 13:
             return SymmetricBIBD_L2_K13()
         case _:
-            raise ValueError(f"カード1枚当たりのシンボル数 ({k}) は「2, 3, 4, 5, 6, 9, 11, 13」のいずれかでなければならない")
+            raise ValueError(
+                f"カード1枚当たりのシンボル数 ({k}) は「2, 3, 4, 5, 6, 9, 11, 13」のいずれかでなければならない"
+            )
 
 
 def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
@@ -514,9 +516,6 @@ def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
         list[list[int]]: 各カードに記載するシンボル番号
         int: 全シンボル数
     """
-    # TODO:
-    # 2つの通常ドブルのガッチャンコ方式と組み合わせることで引数の制限を緩和する
-    # その場合、n_cards == n_symbolsは一致しなくなるため、それを許容するフラグが指定された場合のみその動作を許容するものとする
     _, deck = _calc_symmetric_bibd_lambda2(n_symbols_per_card)
     deck = [list(card) for card in deck]
 
