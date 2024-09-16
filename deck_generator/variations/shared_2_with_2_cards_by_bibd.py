@@ -480,7 +480,7 @@ def _calc_symmetric_bibd_brute_force(lambda_: Literal[1, 2], k: int) -> tuple[np
     return result_deck_m, result_deck
 
 
-def _calc_symmetric_bibd_lambda2(k: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[np.ndarray, Sequence[Sequence[int]]]:
+def _calc_symmetric_bibd_lambda2(k: int) -> tuple[np.ndarray, Sequence[Sequence[int]]]:
     match k:
         case 2:
             return SymmetricBIBD_L2_K2()
@@ -499,10 +499,10 @@ def _calc_symmetric_bibd_lambda2(k: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[
         case 13:
             return SymmetricBIBD_L2_K13()
         case _:
-            raise ValueError
+            raise ValueError(f"カード1枚当たりのシンボル数 ({k}) は「2, 3, 4, 5, 6, 9, 11, 13」のいずれかでなければならない")
 
 
-def make_dobble22_deck(n_symbols_per_card: Literal[2, 3, 4, 5, 6, 9, 11, 13]) -> tuple[list[list[int]], int]:
+def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
     """各カードに記載するシンボルの一覧を生成
 
     2枚のカードに2つの共通するシンボルが出現する拡張ドブル版
@@ -529,5 +529,5 @@ def make_dobble22_deck(n_symbols_per_card: Literal[2, 3, 4, 5, 6, 9, 11, 13]) ->
 
 if __name__ == "__main__":
     for k in (2, 3, 4, 5, 6, 9, 11, 13):
-        deck, n_symbols = make_dobble22_deck(k)
+        deck, n_symbols = make_dobble_deck(k)
         print(f"k={k}, v={n_symbols}, deck={deck}")

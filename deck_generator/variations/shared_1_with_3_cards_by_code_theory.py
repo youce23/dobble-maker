@@ -1030,20 +1030,19 @@ def _check_columns_independent_of_parity_check_matrix(H: galois.FieldArray) -> b
     return n_independent == len(columns)
 
 
-def make_dobble31_deck(param: tuple[int, int]) -> tuple[list[list[int]], int]:
+def make_dobble_deck(n_symbols_per_card: int, n_cards: int) -> tuple[list[list[int]], int]:
     """各カードに記載するシンボルの一覧を生成
 
     3枚のカードに1つの共通するシンボルが出現する拡張ドブル版
 
     Args:
-        param[0]: カード1枚あたりに記載するシンボル数
-        param[1]: 全カード数
+        n_symbols_per_card: カード1枚あたりに記載するシンボル数
+        n_cards: 全カード数
 
     Returns:
         list[list[int]]: デッキ (各カードに記載するシンボル番号)
         int: 全シンボル数
     """
-    n_symbols_per_card, n_cards = param
     match (n_symbols_per_card, n_cards):
         case (30, 26):
             G, H = generate_code_26_22_4_GF5()
@@ -1135,7 +1134,7 @@ def make_dobble31_deck(param: tuple[int, int]) -> tuple[list[list[int]], int]:
             # assert _check_columns_independent_of_parity_check_matrix(H)
             # deck, n_symbols, n_cards, n_symbols_per_card = generate_deck_from_parity_check_matrix(H)
             # print(f"n_symbols_per_card = {n_symbols_per_card}, n_cards = {n_cards}, n_symbols = {n_symbols}")
-            raise ValueError
+            raise ValueError(f"カード1枚あたりのシンボル数 {n_symbols_per_card} と 全カード数 {n_cards} は所定の値でなければならない")
 
     # 条件を満たした行列か確認
     n = n_cards

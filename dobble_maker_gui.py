@@ -8,16 +8,17 @@ from typing import Any, Literal
 
 import numpy as np
 
-from cv2_image_utils import imwrite_japanese
-from dobble_maker import (
+from card_drawer.draw_card import (
     CARD_SHAPE,
     images_to_pdf,
-    is_valid_n_symbols_per_card,
     layout_images_randomly_wo_overlap,
-    load_image_list,
     load_images,
-    make_dobble_deck,
     make_image_of_thumbnails_with_names,
+)
+from cv2_image_utils import imwrite_japanese
+from dobble_maker import (
+    load_image_list,
+    make_dobble_deck,
     save_card_list_to_csv,
     sort_images_by_image_list,
 )
@@ -102,7 +103,7 @@ class Application(tk.Frame):
         shuffle_entry = tk.Checkbutton(self.master, variable=self.shuffle)
 
         # カード当たりのシンボル数を入力するリスト
-        n_symbols_vals = [x for x in range(31) if is_valid_n_symbols_per_card(x)]
+        n_symbols_vals = [2, 3, 4, 5, 6, 8, 9, 10, 12, 14, 17, 18, 20, 24, 26, 28, 30]
         self.n_symbols = tk.IntVar(value=5)
         n_symbols_label = tk.Label(self.master, text="カード当たりのシンボル数")
         n_symbols_entry = ttk.Combobox(
@@ -481,8 +482,9 @@ class Application(tk.Frame):
         else:
             card_shape = CARD_SHAPE.RECTANGLE
             card_size_mm = max(self.card_width.get(), self.card_height.get())
-            card_img_size = tuple(
-                int(x * Application.PIX_PER_MM) for x in (self.card_width.get(), self.card_height.get())
+            card_img_size = (
+                int(self.card_width.get() * Application.PIX_PER_MM),
+                int(self.card_height.get() * Application.PIX_PER_MM),
             )
         card_margin = int(self.card_margin.get() * Application.PIX_PER_MM)  # カード1枚の余白サイズ [pix]
         page_size_mm = (self.page_width.get(), self.page_height.get())  # PDFの(幅, 高さ)[mm]
@@ -694,7 +696,7 @@ class Application(tk.Frame):
         try:
             _ = self._make_thumbnails_core(images, image_paths)
         except Exception as e:
-            messagebox.showerror("エラー", e)
+            messagebox.showerror("エラー", str(e))
             return
 
         # 生成パラメータを保存
