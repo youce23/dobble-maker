@@ -44,7 +44,7 @@ BIBD (t=2) であるため、(2)を展開して
 
 import math
 from itertools import combinations
-from typing import Final, Literal, Sequence
+from typing import Any, Final, Literal, Sequence
 
 import numpy as np
 from tqdm import tqdm
@@ -504,6 +504,11 @@ def _calc_symmetric_bibd_lambda2(k: int) -> tuple[np.ndarray, Sequence[Sequence[
             )
 
 
+def get_valid_params() -> list[int]:
+    """設定可能な n_symbols_per_card の一覧を取得"""
+    return [2, 3, 4, 5, 6, 9, 11, 13]
+
+
 def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
     """各カードに記載するシンボルの一覧を生成
 
@@ -527,6 +532,6 @@ def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
 
 
 if __name__ == "__main__":
-    for k in (2, 3, 4, 5, 6, 9, 11, 13):
+    for k in get_valid_params():
         deck, n_symbols = make_dobble_deck(k)
         print(f"k={k}, v={n_symbols}, deck={deck}")

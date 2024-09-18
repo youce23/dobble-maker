@@ -85,6 +85,11 @@ def is_valid_n_symbols_per_card(n: int) -> bool:
     return flg
 
 
+def get_valid_params(*, max_symbols_per_card: int = 30) -> list[int]:
+    """設定可能な n_symbols_per_card (<= max_symbols_per_card) の一覧を取得"""
+    return [x for x in range(max_symbols_per_card) if is_valid_n_symbols_per_card(x)]
+
+
 def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
     """各カードに記載するシンボルの一覧を生成
 
@@ -130,7 +135,7 @@ def make_dobble_deck(n_symbols_per_card: int) -> tuple[list[list[int]], int]:
     # 最初の N * N 枚のカード
     for i in range(n):
         for j in range(n):
-            pairs.append([int(gf(i) * gf(k) + gf(j)) * n + k for k in range(n)] + [n * n + i])
+            pairs.append([int(gf(i) * gf(k) + gf(j)) * n + k for k in range(n)] + [n * n + i])  # type: ignore
 
     # 次の N 枚のカード
     for i in range(n):
