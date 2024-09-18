@@ -4,7 +4,7 @@ import random
 import tkinter as tk
 import tkinter.ttk as ttk
 from tkinter import filedialog, messagebox
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 
@@ -16,9 +16,9 @@ from card_drawer.draw_card import (
     make_image_of_thumbnails_with_names,
 )
 from cv2_image_utils import imwrite_japanese
+from deck_generator.generator import get_valid_params, make_dobble_deck
 from dobble_maker import (
     load_image_list,
-    make_dobble_deck,
     save_card_list_to_csv,
     sort_images_by_image_list,
 )
@@ -102,13 +102,70 @@ class Application(tk.Frame):
         shuffle_label = tk.Label(self.master, text="画像シャッフル")
         shuffle_entry = tk.Checkbutton(self.master, variable=self.shuffle)
 
-        # カード当たりのシンボル数を入力するリスト
-        n_symbols_vals = [2, 3, 4, 5, 6, 8, 9, 10, 12, 14, 17, 18, 20, 24, 26, 28, 30]
-        self.n_symbols = tk.IntVar(value=5)
-        n_symbols_label = tk.Label(self.master, text="カード当たりのシンボル数")
-        n_symbols_entry = ttk.Combobox(
-            self.master, width=6, height=5, state="readonly", values=n_symbols_vals, textvariable=self.n_symbols
+        # デッキのタイプ
+        self.deck_type = tk.StringVar(value="Normal")
+        deck_type_label = tk.Label(self.master, text="デッキ構成")
+        deck_type_entry = ttk.Combobox(
+            self.master,
+            width=12,
+            height=3,
+            state="readonly",
+            values=("Normal", "Twin Symbols", "Triple Cards"),
+            textvariable=self.deck_type,
         )
+
+        # カードあたりのシンボル数を入力するリスト
+        self.n_symbols_per_card = tk.IntVar(value=5)
+        n_symbols_per_card_label = tk.Label(self.master, text="カードあたりのシンボル数")
+        n_symbols_per_card_entry = ttk.Combobox(
+            self.master, width=6, height=5, state="readonly", textvariable=self.n_symbols_per_card
+        )
+
+        # デッキの構成カード数を入力するリスト
+        # ("Triple Cards"の場合のみ有効化する)
+        self.n_cards = tk.IntVar()
+        n_cards_label = tk.Label(self.master, text="全カード数")
+        n_cards_entry = ttk.Combobox(self.master, width=6, height=5, state="disabled", textvariable=self.n_cards)
+
+        # デッキタイプの入力にしたがってカード当たりのシンボル数, デッキのカード数を変更させる
+        def _update_n_symbols_per_card_and_n_cards(event) -> None:
+            deck_type = self.deck_type.get()
+            if deck_type == "Normal":
+                n_symbols_per_card_entry["values"] = [str(i) for i in get_valid_params()]
+                n_symbols_per_card_entry.current(3)  # 初期値を選択
+                n_cards_entry["values"] = []
+                n_cards_entry.configure(state="disabled")
+            elif deck_type == "Twin Symbols":
+                n_symbols_per_card_entry["values"] = [
+                    str(i) for i in get_valid_params(n_shared_symbols=2, n_shared_cards=2)
+                ]
+                n_symbols_per_card_entry.current(3)
+                n_cards_entry["values"] = []
+                n_cards_entry.configure(state="disabled")
+            elif deck_type == "Triple Cards":
+                _params = get_valid_params(n_shared_symbols=1, n_shared_cards=3)
+                _n_symbols = sorted({i for i, _ in cast(list[tuple[int, int]], _params)})
+                n_symbols_per_card_entry["values"] = [str(i) for i in _n_symbols]
+                n_symbols_per_card_entry.current(3)
+
+                n_symbols = self.n_symbols_per_card.get()
+                _params = get_valid_params(n_shared_symbols=1, n_shared_cards=3, n_symbols_per_card=n_symbols)
+                _n_cards = sorted({i for i in cast(list[int], _params)})
+                n_cards_entry["values"] = [str(i) for i in _n_cards]
+                n_cards_entry.configure(state="readonly")
+                n_cards_entry.current(0)
+
+        def _update_n_cards(event) -> None:
+            deck_type = self.deck_type.get()
+            if deck_type == "Triple Cards":
+                n_symbols = self.n_symbols_per_card.get()
+                n_cards_values = get_valid_params(n_shared_symbols=1, n_shared_cards=3, n_symbols_per_card=n_symbols)
+                n_cards_entry["values"] = [str(i) for i in n_cards_values]
+                n_cards_entry.current(0)
+
+        deck_type_entry.bind("<<ComboboxSelected>>", _update_n_symbols_per_card_and_n_cards)
+        n_symbols_per_card_entry.bind("<<ComboboxSelected>>", _update_n_cards)
+        _update_n_symbols_per_card_and_n_cards(None)  # 初期値を設定するために実行
 
         # カード形状
         self.card_shape = tk.StringVar(value="円")
@@ -208,7 +265,7 @@ class Application(tk.Frame):
         check_thumb_frame = tk.LabelFrame(self.master, text="label frame")
         # * チェックボックス (ラベルフレームの制御)
         _i_state = True  # チェックボックスの初期値
-        self.check_thumb_group: list[tuple[tk.Entry, str]] = (
+        self.check_thumb_group: list[tuple[tk.Entry | tk.Button | tk.Spinbox, str]] = (
             []
         )  # チェックボックスで有効/無効を切り替える(要素, 有効時のstate)を入れる
         self.check_thumb = tk.BooleanVar(value=_i_state)
@@ -317,8 +374,16 @@ class Application(tk.Frame):
         shuffle_entry.grid(row=row, column=1, sticky=tk.W)
         row += 1
 
-        n_symbols_label.grid(row=row, column=0, stick=tk.W)
-        n_symbols_entry.grid(row=row, column=1, stick=tk.W)
+        deck_type_label.grid(row=row, column=0, stick=tk.W)
+        deck_type_entry.grid(row=row, column=1, stick=tk.W)
+        row += 1
+
+        n_symbols_per_card_label.grid(row=row, column=0, stick=tk.E)
+        n_symbols_per_card_entry.grid(row=row, column=1, stick=tk.W)
+        row += 1
+
+        n_cards_label.grid(row=row, column=0, stick=tk.E)
+        n_cards_entry.grid(row=row, column=1, stick=tk.W)
         row += 1
 
         card_shape_label.grid(row=row, column=0, stick=tk.W)
@@ -463,7 +528,9 @@ class Application(tk.Frame):
 
         image_dir = self.input_dir.get()  # 入力画像ディレクトリ
         output_dir = self.output_dir.get()  # 出力画像ディレクトリ
-        n_symbols_per_card = self.n_symbols.get()  # カード1枚当たりのシンボル数
+        deck_type = self.deck_type.get()  # デッキ構成
+        n_symbols_per_card = self.n_symbols_per_card.get()  # カード1枚当たりのシンボル数
+        n_cards = self.n_cards.get()  # 総カード数
         n_voronoi_iters = 2 * self.cvt_level.get()  # 重心ボロノイ分割の反復回数
         radius_p = self.cvt_radius.get() / 10  # 重心ボロノイ分割の母点の半径調整パラメータ
         min_image_size_rate = (
@@ -511,7 +578,9 @@ class Application(tk.Frame):
 
         # パラメータ設定
         self._seed = seed
+        self._deck_type = deck_type
         self._n_symbols_per_card = n_symbols_per_card
+        self._n_cards = n_cards
         self._output_dir = output_dir
         self._image_dir = image_dir
         self._card_size_mm = card_size_mm
@@ -538,7 +607,25 @@ class Application(tk.Frame):
                 return
 
             # 各カード毎の組み合わせを生成
-            pairs, n_symbols = make_dobble_deck(self._n_symbols_per_card)
+            match self._deck_type:
+                case "Normal":
+                    n_shared_symbols = 1
+                    n_shared_cards = 2
+                    n_cards = None
+                case "Twin Symbols":
+                    n_shared_symbols = 2
+                    n_shared_cards = 2
+                    n_cards = None
+                case "Triple Cards":
+                    n_shared_symbols = 1
+                    n_shared_cards = 3
+                    n_cards = self._n_cards
+            pairs, n_symbols = make_dobble_deck(
+                self._n_symbols_per_card,
+                n_shared_symbols=n_shared_symbols,
+                n_shared_cards=n_shared_cards,
+                n_cards=n_cards,
+            )
             save_card_list_to_csv(self._output_dir, pairs)  # 組み合わせのcsvを出力
 
             # image_dirからn_symbols数の画像を取得
@@ -619,7 +706,12 @@ class Application(tk.Frame):
                 "image_dir": self._image_dir,
                 "output_dir": self._output_dir,
                 "shuffle": self.shuffle.get(),
+                "deck_type": self._deck_type,
                 "n_symbols_per_card": self._n_symbols_per_card,
+            }
+            if self._deck_type == "Triple Cards":
+                params |= {"n_cards": self._n_cards}
+            params |= {
                 "card_shape": self._card_shape,
                 "card_width_mm": self.card_width.get(),
                 "card_height_mm": self.card_height.get(),

@@ -1030,6 +1030,54 @@ def _check_columns_independent_of_parity_check_matrix(H: galois.FieldArray) -> b
     return n_independent == len(columns)
 
 
+def get_valid_params() -> list[tuple[int, int]]:
+    """make_dobble_deckで処理可能なn_symbols_per_card, n_cardsの組み合わせを取得"""
+    params = [
+        (30, 26),
+        (30, 25),
+        (30, 24),
+        (30, 23),
+        (30, 22),
+        (30, 21),
+        (30, 20),
+        (30, 19),
+        (29, 18),
+        (29, 17),
+        (29, 16),
+        (29, 15),
+        (28, 14),
+        (26, 13),
+        (24, 12),
+        (22, 11),
+        (18, 10),
+        (15, 9),
+        (13, 8),
+        (11, 7),
+        (20, 17),
+        (20, 16),
+        (20, 15),
+        (20, 14),
+        (19, 13),
+        (18, 12),
+        (17, 11),
+        (15, 10),
+        (15, 9),
+        (11, 8),
+        (11, 7),
+        (5, 6),
+        (12, 10),
+        (12, 9),
+        (11, 8),
+        (9, 7),
+        (8, 6),
+        (7, 8),
+        (7, 7),
+        (6, 6),
+    ]
+
+    return params
+
+
 def make_dobble_deck(n_symbols_per_card: int, n_cards: int) -> tuple[list[list[int]], int]:
     """各カードに記載するシンボルの一覧を生成
 
@@ -1134,7 +1182,9 @@ def make_dobble_deck(n_symbols_per_card: int, n_cards: int) -> tuple[list[list[i
             # assert _check_columns_independent_of_parity_check_matrix(H)
             # deck, n_symbols, n_cards, n_symbols_per_card = generate_deck_from_parity_check_matrix(H)
             # print(f"n_symbols_per_card = {n_symbols_per_card}, n_cards = {n_cards}, n_symbols = {n_symbols}")
-            raise ValueError(f"カード1枚あたりのシンボル数 {n_symbols_per_card} と 全カード数 {n_cards} は所定の値でなければならない")
+            raise ValueError(
+                f"カード1枚あたりのシンボル数 {n_symbols_per_card} と 全カード数 {n_cards} は所定の値でなければならない"
+            )
 
     # 条件を満たした行列か確認
     n = n_cards
