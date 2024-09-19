@@ -6,7 +6,7 @@ from matplotlib.collections import PolyCollection
 from scipy.spatial import Voronoi
 from shapely.geometry import Point, Polygon
 
-from laguerre_voronoi_2d import convert_power_diagrams_to_cells, power_diagrams
+from card_drawer.laguerre_voronoi_2d import convert_power_diagrams_to_cells, power_diagrams
 
 
 def _rand_pts_in_poly(
