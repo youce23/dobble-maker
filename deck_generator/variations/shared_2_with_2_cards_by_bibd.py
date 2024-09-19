@@ -43,11 +43,15 @@ BIBD (t=2) であるため、(2)を展開して
 """
 
 import math
+import sys
 from itertools import combinations
-from typing import Any, Final, Literal, Sequence
+from typing import Final, Literal, Sequence
 
 import numpy as np
 from tqdm import tqdm
+
+# cx_Freezeでbase=Win32GUIでビルドされた場合、標準出力が空になりtqdmが使えないため判定
+disable_tqdm: Final[bool] = (not sys.stdout) or (not sys.stderr)
 
 
 def _check_symmetric_bibd(deck_m: np.ndarray, k: int, lambda_: Literal[1, 2]) -> None:
@@ -459,7 +463,7 @@ def _calc_symmetric_bibd_brute_force(lambda_: Literal[1, 2], k: int) -> tuple[np
     card_patterns_yield = combinations(range(v), k)
     deck_patterns_yield = combinations(card_patterns_yield, b)
     result_deck_m = None
-    for deck in tqdm(deck_patterns_yield, desc="デッキ構築", total=deck_patterns_n):
+    for deck in tqdm(deck_patterns_yield, desc="デッキ構築", total=deck_patterns_n, disable=disable_tqdm):
         deck_m = _deck_to_deck_matrix(list(deck), n_cards=v, n_symbols=v)
 
         if not all(deck_m.sum(axis=0) == r):
