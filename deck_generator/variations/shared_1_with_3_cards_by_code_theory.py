@@ -22,11 +22,16 @@
 """
 
 import statistics
+import sys
 from itertools import combinations
+from typing import Final
 
 import galois
 import numpy as np
 from tqdm import tqdm
+
+# cx_Freezeでbase=Win32GUIでビルドされた場合、標準出力が空になりtqdmが使えないため判定
+disable_tqdm: Final[bool] = (not sys.stdout) or (not sys.stderr)
 
 
 def _shortening_last_n(
@@ -975,7 +980,7 @@ def generate_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple[list[l
     # Hから(d-1)本の列ベクトルを全組み合わせで選択
     deck: list[set[int]] = [set() for _ in range(k)]  # decks[カードID] = {保有するシンボルID}とする
     all_combi = list(combinations(range(k), d - 1))
-    for combi in tqdm(all_combi):
+    for combi in tqdm(all_combi, disable=disable_tqdm):
         # 選択した列ベクトルが線形独立か確認
         selected = H[:, combi]
         assert isinstance(selected, galois.FieldArray)
