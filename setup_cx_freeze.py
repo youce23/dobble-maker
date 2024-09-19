@@ -7,7 +7,7 @@ import sys
 from cx_Freeze import Executable, setup
 
 # exeのバージョン番号
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 build_exe_options = {
     # 取り込みたいパッケージ
