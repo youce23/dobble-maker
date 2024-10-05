@@ -957,6 +957,36 @@ def generate_code_8_4_4_GF2() -> tuple[galois.FieldArray, galois.FieldArray]:
     return gf(G), gf(H)
 
 
+def monic_normalize(vector: galois.FieldArray) -> galois.FieldArray:
+    """有限体上のベクトルを正規化 (モニック化)
+
+    ベクトルの各要素を多項式の係数として、最高次の項の係数を1にする
+    - つまり最初に見つけた非ゼロの値を1にする
+
+    Args:
+        vector (galois.FieldArray): 入力ベクトル
+
+    Returns:
+        np.ndarray: 正規化されたベクトル
+    """
+    # 最初の非ゼロ要素を見つける
+    first_val = next((x for x in vector if x != 0), None)
+
+    if first_val is None:
+        return vector  # ゼロベクトル
+    elif first_val == 1:
+        return vector  # 正規化済み
+
+    # 最初の非ゼロ要素の逆数を計算
+    gf = galois.GF(first_val._order)
+    inverse = gf(1) / first_val
+
+    # ベクトルをこの逆数で乗算
+    normed_vec = vector * inverse
+
+    return normed_vec
+
+
 def generate_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple[list[list[int]], int, int, int]:
     """パリティ検査行列に従ってドブルデッキ構築
 
@@ -993,10 +1023,12 @@ def generate_deck_from_parity_check_matrix(H: galois.FieldArray) -> tuple[list[l
         assert isinstance(orth_vecs, galois.FieldArray)
         orth_vec = orth_vecs[0]
         assert isinstance(orth_vec, galois.FieldArray)
+        # 正規化
+        normalized_orth_vec = monic_normalize(orth_vec)
 
         # 選択した(d-1)本のベクトル = 選択した(d-1)枚のカード, 補空間 = 共通シンボル, と解釈して
         # 各カードが保有するシンボルを記憶
-        symbol_id = sum(int(a) * q**i for i, a in enumerate(orth_vec))
+        symbol_id = sum(int(a) * q**i for i, a in enumerate(normalized_orth_vec))
         for card_id in combi:
             deck[card_id].add(symbol_id)
 
